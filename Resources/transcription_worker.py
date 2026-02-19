@@ -4,13 +4,78 @@ import json
 import os
 import sys
 import threading
-import time
 from pathlib import Path
 
 DEFAULT_REPO_CANDIDATES = [
     "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     "SYSTRAN/faster-whisper-large-v3",
 ]
+
+TEXTS = {
+    "en": {
+        "import_whisper_failed": "Failed to import faster-whisper. Please install dependencies through the app.",
+        "import_hf_failed": "Failed to import huggingface_hub.",
+        "download_try_next": "Failed to download {repo_id}, trying the next source...",
+        "download_failed": "Failed to download or initialize Whisper model.",
+        "model_path_not_found": "Model path was not found: {path}",
+        "invalid_local_model": "The selected folder does not look like a valid faster-whisper local model.",
+        "file_not_found": "File was not found: {path}",
+        "local_model_not_found": "Local model was not found: {path}",
+        "load_local_model_failed": "Failed to load local model.",
+        "transcription_failed": "Transcription failed.",
+    },
+    "ru": {
+        "import_whisper_failed": "Не удалось импортировать faster-whisper. Установите зависимости через приложение.",
+        "import_hf_failed": "Не удалось импортировать huggingface_hub.",
+        "download_try_next": "Не удалось скачать {repo_id}, пробую следующий источник...",
+        "download_failed": "Не удалось скачать или инициализировать модель Whisper.",
+        "model_path_not_found": "Путь к модели не найден: {path}",
+        "invalid_local_model": "Указанная папка не выглядит как рабочая локальная модель faster-whisper.",
+        "file_not_found": "Файл не найден: {path}",
+        "local_model_not_found": "Локальная модель не найдена: {path}",
+        "load_local_model_failed": "Не удалось загрузить локальную модель.",
+        "transcription_failed": "Ошибка во время транскрипции.",
+    },
+    "zh": {
+        "import_whisper_failed": "无法导入 faster-whisper。请通过应用安装依赖。",
+        "import_hf_failed": "无法导入 huggingface_hub。",
+        "download_try_next": "下载 {repo_id} 失败，正在尝试下一个来源...",
+        "download_failed": "下载或初始化 Whisper 模型失败。",
+        "model_path_not_found": "未找到模型路径：{path}",
+        "invalid_local_model": "所选文件夹不是有效的 faster-whisper 本地模型。",
+        "file_not_found": "未找到文件：{path}",
+        "local_model_not_found": "未找到本地模型：{path}",
+        "load_local_model_failed": "加载本地模型失败。",
+        "transcription_failed": "转写失败。",
+    },
+}
+
+
+def detect_lang() -> str:
+    for candidate in (
+        os.environ.get("GZWHISPER_UI_LANG"),
+        os.environ.get("LC_ALL"),
+        os.environ.get("LC_MESSAGES"),
+        os.environ.get("LANG"),
+    ):
+        if not candidate:
+            continue
+        code = candidate.split(".", 1)[0].lower()
+        if code.startswith("ru"):
+            return "ru"
+        if code.startswith("zh"):
+            return "zh"
+    return "en"
+
+
+UI_LANG = detect_lang()
+
+
+def t(key: str, **kwargs):
+    template = TEXTS.get(UI_LANG, TEXTS["en"]).get(key, TEXTS["en"].get(key, key))
+    if kwargs:
+        return template.format(**kwargs)
+    return template
 
 
 def emit(payload):
@@ -24,7 +89,7 @@ def import_whisper_model():
         emit(
             {
                 "ok": False,
-                "error": "Не удалось импортировать faster-whisper. Установите зависимости через приложение.",
+                "error": t("import_whisper_failed"),
                 "details": str(exc),
             }
         )
@@ -83,7 +148,7 @@ def cmd_download(args):
         emit(
             {
                 "ok": False,
-                "error": "Не удалось импортировать huggingface_hub.",
+                "error": t("import_hf_failed"),
                 "details": str(exc),
             }
         )
@@ -165,14 +230,14 @@ def cmd_download(args):
             emit(
                 {
                     "event": "status",
-                    "message": f"Не удалось скачать {repo_id}, пробую следующий источник...",
+                    "message": t("download_try_next", repo_id=repo_id),
                 }
             )
 
     emit(
         {
             "ok": False,
-            "error": "Не удалось скачать или инициализировать модель Whisper.",
+            "error": t("download_failed"),
             "details": last_error,
         }
     )
@@ -182,7 +247,7 @@ def cmd_download(args):
 def cmd_validate_model(args):
     model_path = Path(args.model_path).expanduser().resolve()
     if not model_path.exists():
-        emit({"ok": False, "error": f"Путь к модели не найден: {model_path}"})
+        emit({"ok": False, "error": t("model_path_not_found", path=model_path)})
         sys.exit(1)
 
     WhisperModel = import_whisper_model()
@@ -201,7 +266,7 @@ def cmd_validate_model(args):
         emit(
             {
                 "ok": False,
-                "error": "Указанная папка не выглядит как рабочая локальная модель faster-whisper.",
+                "error": t("invalid_local_model"),
                 "details": str(exc),
             }
         )
@@ -213,11 +278,11 @@ def cmd_transcribe(args):
     audio_path = Path(args.input).expanduser().resolve()
 
     if not audio_path.exists():
-        emit({"ok": False, "error": f"Файл не найден: {audio_path}"})
+        emit({"ok": False, "error": t("file_not_found", path=audio_path)})
         sys.exit(1)
 
     if not model_path.exists():
-        emit({"ok": False, "error": f"Локальная модель не найдена: {model_path}"})
+        emit({"ok": False, "error": t("local_model_not_found", path=model_path)})
         sys.exit(1)
 
     WhisperModel = import_whisper_model()
@@ -233,7 +298,7 @@ def cmd_transcribe(args):
         emit(
             {
                 "ok": False,
-                "error": "Не удалось загрузить локальную модель.",
+                "error": t("load_local_model_failed"),
                 "details": str(exc),
             }
         )
@@ -269,7 +334,7 @@ def cmd_transcribe(args):
         emit(
             {
                 "ok": False,
-                "error": "Ошибка во время транскрипции.",
+                "error": t("transcription_failed"),
                 "details": str(exc),
             }
         )

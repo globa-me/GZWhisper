@@ -12,7 +12,7 @@ enum ProcessRunnerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .cannotLaunch(executable, reason):
-            return "Не удалось запустить \(executable): \(reason)"
+            return L10n.f("process.cannotLaunch", executable, reason)
         }
     }
 }

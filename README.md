@@ -1,25 +1,28 @@
 # GZWhisper
 
-GZWhisper — приложение для локальной расшифровки аудио и видео в текст.
+GZWhisper is a local-first speech-to-text app for audio and video files.
 
-Проект состоит из двух версий:
-- `macOS` приложение на SwiftUI (`Sources/`)
-- `Linux` приложение на Python/Tkinter (`linux/gzwhisper_linux.py`)
+This repository includes two desktop apps:
+- `macOS` app (SwiftUI): `Sources/`
+- `Linux` app (Python + Tkinter): `linux/gzwhisper_linux.py`
 
-После подключения модели расшифровка выполняется полностью локально, без отправки медиа на внешние серверы.
+After the model is downloaded, transcription runs on the user's machine.
 
-## Что умеет
+## What it does
 
-- Загрузка модели из Hugging Face или подключение уже скачанной локальной модели.
-- Показ прогресса загрузки модели.
-- Выбор аудио и видео файлов.
-- Автоматическое извлечение аудио из видео.
-- Транскрибация с автоопределением языка или ручным выбором языка.
-- Копирование результата и сохранение в `TXT`/`JSON`.
+- Download a Whisper model from Hugging Face, or connect an existing local model.
+- Show download progress while the model is being fetched.
+- Accept audio and video files.
+- Extract audio from video automatically.
+- Transcribe locally and save output as `TXT` or `JSON`.
+- Auto-switch app language based on system locale:
+  - Russian (`ru`)
+  - English (`en`)
+  - Chinese (`zh`)
 
-## Быстрый старт (Linux)
+## Quick Start (Linux)
 
-### Зависимости
+### 1) Install system dependencies
 
 Fedora:
 
@@ -34,89 +37,89 @@ sudo apt update
 sudo apt install -y python3 python3-venv python3-tk ffmpeg
 ```
 
-### Установка
+### 2) Install the app
 
 ```bash
 ./scripts/install_linux.sh
 ```
 
-Установщик добавит:
+This creates:
 - launcher: `~/.local/bin/gzwhisper-linux`
 - desktop entry: `~/.local/share/applications/gzwhisper-linux.desktop`
 
-### Запуск
+### 3) Run
 
 ```bash
 gzwhisper-linux
 ```
 
-Если команда не найдена:
+If the command is not in `PATH`, run:
 
 ```bash
 ~/.local/bin/gzwhisper-linux
 ```
 
-### Удаление
+### 4) Uninstall
 
 ```bash
 ./scripts/uninstall_linux.sh
 ```
 
-### Архив для раздачи
+### Optional: build a distributable archive
 
 ```bash
 ./scripts/package_linux.sh
 ```
 
-Результат: `build/GZWhisper-linux.tar.gz`
+Output: `build/GZWhisper-linux.tar.gz`
 
-## Быстрый старт (macOS)
+## Quick Start (macOS)
 
-### Сборка приложения
+### Build app bundle
 
 ```bash
 ./scripts/make_icon.sh
 ./scripts/build_app.sh
 ```
 
-Результат: `build/GZWhisper.app`
+Output: `build/GZWhisper.app`
 
-### ZIP для сайта
+### Build ZIP for distribution
 
 ```bash
 ./scripts/package_zip.sh
 ```
 
-Результат: `build/GZWhisper-macOS.zip`
+Output: `build/GZWhisper-macOS.zip`
 
-### DMG-инсталлер
+### Build DMG installer
 
 ```bash
 ./scripts/build_dmg.sh
 ```
 
-Результат: `build/GZWhisper-Installer.dmg`
+Output: `build/GZWhisper-Installer.dmg`
 
-## Первый запуск
+## First run (both platforms)
 
-1. Открой приложение.
-2. Если модель ещё не подключена, нажми `Загрузить модель` или `Указать локальную`.
-3. Дождись подготовки Python-окружения и установки зависимостей (это делается один раз).
-4. Выбери аудио/видео файл и запусти транскрибацию.
+1. Open the app.
+2. Click **Download model** (or connect an existing local model folder).
+3. Wait for one-time environment setup and dependency install.
+4. Pick an audio/video file and run transcription.
 
-## Важные заметки
+## Notes for non-technical users
 
-- Для первого запуска нужен интернет: скачать модель и Python-зависимости.
-- Дальше можно работать офлайн (если модель уже есть локально).
-- Для видео на Linux нужен `ffmpeg`.
+- Internet is needed only for first-time setup (model + Python dependencies).
+- Once the model is local, transcription can run offline.
+- Linux video transcription requires `ffmpeg`.
 
-## Структура проекта
+## Project layout
 
-- `Sources/` — macOS приложение (SwiftUI).
-- `linux/` — Linux приложение (Tkinter).
-- `Resources/transcription_worker.py` — общий Python worker для модели и транскрибации.
-- `scripts/` — скрипты сборки, упаковки и установки.
+- `Sources/` — macOS app source code.
+- `linux/` — Linux app source code.
+- `Resources/transcription_worker.py` — shared worker for model download/validation/transcription.
+- `scripts/` — build, package, install, uninstall scripts.
 
-## Лицензия
+## License
 
-Лицензия пока не добавлена. Если нужно, можно быстро добавить MIT.
+No license file yet. If you want, add `MIT` as a quick default.

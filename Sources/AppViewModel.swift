@@ -4,10 +4,10 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class AppViewModel: ObservableObject {
-    @Published var modelStatus = "Модель не загружена"
+    @Published var modelStatus = L10n.t("status.modelNotLoaded")
     @Published var modelLocationText = ""
     @Published var modelSourceText = ""
-    @Published var statusMessage = "Готово к работе"
+    @Published var statusMessage = L10n.t("status.ready")
     @Published var selectedFileURL: URL?
     @Published var transcriptText = ""
     @Published var selectedLanguage = "auto"
@@ -20,13 +20,7 @@ final class AppViewModel: ObservableObject {
     @Published var hasKnownDownloadTotal = false
     @Published private(set) var hasConnectedModel = false
 
-    let languageOptions: [(title: String, code: String)] = [
-        ("Авто", "auto"),
-        ("Русский", "ru"),
-        ("English", "en"),
-        ("Deutsch", "de"),
-        ("Español", "es"),
-    ]
+    let languageOptions = L10n.transcriptionLanguageOptions
 
     let downloadSourcesHint = WhisperEngine.modelSourceURLs.joined(separator: "  |  ")
 
@@ -70,11 +64,11 @@ final class AppViewModel: ObservableObject {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.audio, .movie]
-        panel.prompt = "Выбрать"
+        panel.prompt = L10n.t("panel.choosePrompt")
 
         if panel.runModal() == .OK {
             selectedFileURL = panel.url
-            statusMessage = "Файл выбран: \(panel.url?.lastPathComponent ?? "")"
+            statusMessage = L10n.f("status.fileSelected", panel.url?.lastPathComponent ?? "")
         }
     }
 
@@ -85,9 +79,9 @@ final class AppViewModel: ObservableObject {
         try? FileManager.default.createDirectory(at: defaultDirectory, withIntermediateDirectories: true)
 
         let panel = NSOpenPanel()
-        panel.title = "Куда сохранить локальную модель"
-        panel.message = "Выберите папку, где будут храниться файлы модели Whisper. По умолчанию: Documents/GZWhisper"
-        panel.prompt = "Сохранить сюда"
+        panel.title = L10n.t("panel.downloadModelTitle")
+        panel.message = L10n.t("panel.downloadModelMessage")
+        panel.prompt = L10n.t("panel.downloadModelPrompt")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
@@ -105,9 +99,9 @@ final class AppViewModel: ObservableObject {
         guard !isDownloadingModel else { return }
 
         let panel = NSOpenPanel()
-        panel.title = "Указать локальную модель"
-        panel.message = "Выберите папку с уже скачанной моделью faster-whisper."
-        panel.prompt = "Подключить"
+        panel.title = L10n.t("panel.connectModelTitle")
+        panel.message = L10n.t("panel.connectModelMessage")
+        panel.prompt = L10n.t("panel.connectModelPrompt")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = false
@@ -120,7 +114,7 @@ final class AppViewModel: ObservableObject {
 
         let engine = self.engine
 
-        statusMessage = "Проверяю локальную модель..."
+        statusMessage = L10n.t("status.validatingModel")
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -132,7 +126,7 @@ final class AppViewModel: ObservableObject {
 
                 DispatchQueue.main.async {
                     self.refreshModelStatus()
-                    self.statusMessage = "Локальная модель подключена."
+                    self.statusMessage = L10n.t("status.localModelConnected")
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -144,7 +138,7 @@ final class AppViewModel: ObservableObject {
 
     func revealModelInFinder() {
         guard let path = currentModelReference?.modelPath else {
-            statusMessage = "Папка модели не найдена."
+            statusMessage = L10n.t("status.modelFolderNotFound")
             return
         }
 
@@ -157,23 +151,23 @@ final class AppViewModel: ObservableObject {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Удалить модель?"
+        alert.messageText = L10n.t("alert.deleteModelTitle")
 
         if reference.sourceType == .downloaded {
-            alert.informativeText = "Файлы модели будут удалены с диска. Это освободит место."
+            alert.informativeText = L10n.t("alert.deleteDownloadedInfo")
         } else {
-            alert.informativeText = "Эта модель подключена по внешнему пути. Будет удалена только привязка в приложении, файлы на диске останутся."
+            alert.informativeText = L10n.t("alert.deleteLinkedInfo")
         }
 
-        alert.addButton(withTitle: "Удалить")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L10n.t("button.delete"))
+        alert.addButton(withTitle: L10n.t("button.cancel"))
 
         guard alert.runModal() == .alertFirstButtonReturn else {
             return
         }
 
         let engine = self.engine
-        statusMessage = "Удаляю модель..."
+        statusMessage = L10n.t("status.deletingModel")
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -183,9 +177,9 @@ final class AppViewModel: ObservableObject {
                     self.refreshModelStatus()
                     switch outcome {
                     case let .deletedFiles(path):
-                        self.statusMessage = "Модель удалена: \(path)"
+                        self.statusMessage = L10n.f("status.modelDeleted", path)
                     case let .unlinked(path):
-                        self.statusMessage = "Привязка к модели удалена: \(path)"
+                        self.statusMessage = L10n.f("status.modelUnlinked", path)
                     }
                 }
             } catch {
@@ -198,12 +192,12 @@ final class AppViewModel: ObservableObject {
 
     func transcribeSelectedFile() {
         guard let selectedFileURL else {
-            statusMessage = "Сначала выберите аудио или видео файл."
+            statusMessage = L10n.t("status.pickFileFirst")
             return
         }
 
         guard hasConnectedModel else {
-            statusMessage = "Сначала подключите локальную модель Whisper."
+            statusMessage = L10n.t("status.connectModelFirst")
             return
         }
 
@@ -213,7 +207,7 @@ final class AppViewModel: ObservableObject {
         let selectedLanguage = self.selectedLanguage
 
         isTranscribing = true
-        statusMessage = "Подготовка файла..."
+        statusMessage = L10n.t("status.preparingFile")
 
         DispatchQueue.global(qos: .userInitiated).async {
             var prepared: PreparedAudio?
@@ -238,9 +232,9 @@ final class AppViewModel: ObservableObject {
                     self.isTranscribing = false
                     self.segments = result.segments
                     self.lastModelID = result.modelID
-                    self.detectedLanguage = result.detectedLanguage ?? "не определен"
+                    self.detectedLanguage = result.detectedLanguage ?? L10n.t("status.languageNotDetected")
                     self.transcriptText = result.text
-                    self.statusMessage = "Транскрипция завершена."
+                    self.statusMessage = L10n.t("status.transcriptionCompleted")
                     self.refreshModelStatus()
                 }
             } catch {
@@ -260,40 +254,40 @@ final class AppViewModel: ObservableObject {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(transcriptText, forType: .string)
-        statusMessage = "Текст скопирован в буфер обмена."
+        statusMessage = L10n.t("status.copied")
     }
 
     func saveAsText() {
         guard !transcriptText.isEmpty else {
-            statusMessage = "Нет текста для сохранения."
+            statusMessage = L10n.t("status.noTextToSave")
             return
         }
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
         panel.nameFieldStringValue = "transcript.txt"
-        panel.title = "Сохранить транскрипцию в TXT"
+        panel.title = L10n.t("panel.saveTXTTitle")
 
         if panel.runModal() == .OK, let destination = panel.url {
             do {
                 try transcriptText.write(to: destination, atomically: true, encoding: .utf8)
-                statusMessage = "TXT сохранен: \(destination.lastPathComponent)"
+                statusMessage = L10n.f("status.txtSaved", destination.lastPathComponent)
             } catch {
-                statusMessage = "Ошибка сохранения TXT: \(error.localizedDescription)"
+                statusMessage = L10n.f("status.txtSaveError", error.localizedDescription)
             }
         }
     }
 
     func saveAsJSON() {
         guard !transcriptText.isEmpty else {
-            statusMessage = "Нет текста для сохранения."
+            statusMessage = L10n.t("status.noTextToSave")
             return
         }
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "transcript.json"
-        panel.title = "Сохранить транскрипцию в JSON"
+        panel.title = L10n.t("panel.saveJSONTitle")
 
         if panel.runModal() == .OK, let destination = panel.url {
             var payload: [String: Any] = [
@@ -322,9 +316,9 @@ final class AppViewModel: ObservableObject {
             do {
                 let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
                 try data.write(to: destination)
-                statusMessage = "JSON сохранен: \(destination.lastPathComponent)"
+                statusMessage = L10n.f("status.jsonSaved", destination.lastPathComponent)
             } catch {
-                statusMessage = "Ошибка сохранения JSON: \(error.localizedDescription)"
+                statusMessage = L10n.f("status.jsonSaveError", error.localizedDescription)
             }
         }
     }
@@ -335,11 +329,11 @@ final class AppViewModel: ObservableObject {
         let engine = self.engine
 
         isDownloadingModel = true
-        downloadSourceText = "Источник: \(WhisperEngine.modelSourceURLs.first ?? "-")"
-        downloadProgressText = "0 MB"
+        downloadSourceText = L10n.f("status.source", WhisperEngine.modelSourceURLs.first ?? "-")
+        downloadProgressText = L10n.f("status.downloadedOnly", byteFormatter.string(fromByteCount: 0))
         downloadProgressFraction = 0.0
         hasKnownDownloadTotal = false
-        statusMessage = "Подготовка окружения..."
+        statusMessage = L10n.t("status.preparingEnvironment")
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -362,7 +356,7 @@ final class AppViewModel: ObservableObject {
                     self.currentModelReference = reference
                     self.lastModelID = reference.modelID
                     self.refreshModelStatus()
-                    self.statusMessage = "Модель загружена и готова к работе."
+                    self.statusMessage = L10n.t("status.modelDownloadedReady")
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -376,7 +370,7 @@ final class AppViewModel: ObservableObject {
     private func applyDownloadEvent(_ event: ModelDownloadEvent) {
         switch event {
         case let .source(_, url):
-            downloadSourceText = "Источник: \(url)"
+            downloadSourceText = L10n.f("status.source", url)
         case let .progress(downloadedBytes, totalBytes):
             let downloaded = byteFormatter.string(fromByteCount: downloadedBytes)
 
@@ -385,11 +379,11 @@ final class AppViewModel: ObservableObject {
                 let fraction = min(max(Double(downloadedBytes) / Double(totalBytes), 0), 1)
                 hasKnownDownloadTotal = true
                 downloadProgressFraction = fraction
-                downloadProgressText = String(format: "%.1f%% • %@ из %@", fraction * 100, downloaded, total)
+                downloadProgressText = L10n.f("status.downloadProgress", fraction * 100, downloaded, total)
             } else {
                 hasKnownDownloadTotal = false
                 downloadProgressFraction = 0
-                downloadProgressText = "Загружено: \(downloaded)"
+                downloadProgressText = L10n.f("status.downloadedOnly", downloaded)
             }
         case let .status(message):
             if !message.isEmpty {
@@ -403,18 +397,18 @@ final class AppViewModel: ObservableObject {
             hasConnectedModel = true
             currentModelReference = reference
             lastModelID = reference.modelID
-            modelStatus = "Локальная модель: \(reference.modelID)"
+            modelStatus = L10n.f("status.localModel", reference.modelID)
             modelLocationText = reference.modelPath
 
             if let sourceRepo = reference.sourceRepo {
-                modelSourceText = "Источник: https://huggingface.co/\(sourceRepo)"
+                modelSourceText = L10n.f("status.source", "https://huggingface.co/\(sourceRepo)")
             } else {
-                modelSourceText = "Источник: пользовательская локальная папка"
+                modelSourceText = L10n.t("status.sourceLocalFolder")
             }
         } else {
             hasConnectedModel = false
             currentModelReference = nil
-            modelStatus = "Модель не загружена"
+            modelStatus = L10n.t("status.modelNotLoaded")
             modelLocationText = ""
             modelSourceText = ""
         }

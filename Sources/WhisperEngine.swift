@@ -48,17 +48,17 @@ enum WhisperEngineError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingBundledWorker:
-            return "В приложении не найден скрипт транскрипции."
+            return L10n.t("engine.missingWorker")
         case .missingVenvPython:
-            return "Локальный Python в окружении приложения не найден."
+            return L10n.t("engine.missingVenvPython")
         case let .commandFailed(message):
             return message
         case .malformedResponse:
-            return "Сервис транскрипции вернул некорректный ответ."
+            return L10n.t("engine.malformedResponse")
         case .modelMissing:
-            return "Локальная модель не найдена."
+            return L10n.t("engine.modelMissing")
         case .invalidModelPath:
-            return "Указан некорректный путь к локальной модели."
+            return L10n.t("engine.invalidModelPath")
         }
     }
 }
@@ -129,7 +129,7 @@ final class WhisperEngine: @unchecked Sendable {
         try prepareEnvironment(status: status)
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
 
-        status("Скачиваю Whisper large-v3-turbo локально...")
+        status(L10n.t("engine.downloadingModel"))
 
         var arguments = [
             workerScriptURL.path,
@@ -204,7 +204,7 @@ final class WhisperEngine: @unchecked Sendable {
             throw WhisperEngineError.invalidModelPath
         }
 
-        status("Проверяю локальную модель...")
+        status(L10n.t("engine.validatingModel"))
 
         let result = try runPython(arguments: [
             workerScriptURL.path,
@@ -259,7 +259,7 @@ final class WhisperEngine: @unchecked Sendable {
             throw WhisperEngineError.modelMissing
         }
 
-        status("Выполняю локальную транскрипцию...")
+        status(L10n.t("engine.transcribing"))
 
         var arguments = [
             workerScriptURL.path,
@@ -336,7 +336,7 @@ final class WhisperEngine: @unchecked Sendable {
             return
         }
 
-        status("Создаю локальное Python-окружение...")
+        status(L10n.t("engine.creatingVenv"))
         let result = try ProcessRunner.run(
             executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
             arguments: ["-m", "venv", venvDirectory.path]
@@ -344,7 +344,7 @@ final class WhisperEngine: @unchecked Sendable {
 
         guard result.exitCode == 0 else {
             let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw WhisperEngineError.commandFailed(message: "Не удалось создать виртуальное окружение.\n\(message)")
+            throw WhisperEngineError.commandFailed(message: L10n.f("engine.creatingVenvFailed", message))
         }
     }
 
@@ -360,7 +360,7 @@ final class WhisperEngine: @unchecked Sendable {
             return
         }
 
-        status("Устанавливаю зависимости (faster-whisper)...")
+        status(L10n.t("engine.installingDeps"))
 
         _ = try ProcessRunner.run(
             executableURL: pythonURL,
@@ -374,7 +374,7 @@ final class WhisperEngine: @unchecked Sendable {
 
         guard installResult.exitCode == 0 else {
             let stderr = installResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw WhisperEngineError.commandFailed(message: "Не удалось установить Python-зависимости.\n\(stderr)")
+            throw WhisperEngineError.commandFailed(message: L10n.f("engine.installDepsFailed", stderr))
         }
     }
 
@@ -382,7 +382,10 @@ final class WhisperEngine: @unchecked Sendable {
         try ProcessRunner.run(
             executableURL: resolvedVenvPythonURL(),
             arguments: arguments,
-            environment: ["PYTHONUNBUFFERED": "1"],
+            environment: [
+                "PYTHONUNBUFFERED": "1",
+                "GZWHISPER_UI_LANG": AppLanguage.current.workerCode,
+            ],
             currentDirectoryURL: supportDirectory
         )
     }
@@ -391,7 +394,10 @@ final class WhisperEngine: @unchecked Sendable {
         try ProcessRunner.runStreaming(
             executableURL: resolvedVenvPythonURL(),
             arguments: arguments,
-            environment: ["PYTHONUNBUFFERED": "1"],
+            environment: [
+                "PYTHONUNBUFFERED": "1",
+                "GZWHISPER_UI_LANG": AppLanguage.current.workerCode,
+            ],
             currentDirectoryURL: supportDirectory,
             onStdoutLine: onLine,
             onStderrLine: nil

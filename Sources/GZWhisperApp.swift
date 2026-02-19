@@ -54,7 +54,7 @@ struct ContentView: View {
                 .font(.system(size: 34, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(red: 0.08, green: 0.16, blue: 0.32))
 
-            Text("Локальная транскрипция аудио и видео на вашем Mac")
+            Text(L10n.t("app.subtitle"))
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
         }
@@ -68,10 +68,10 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 if viewModel.hasConnectedModel {
                     Button(action: viewModel.revealModelInFinder) {
-                        statusPill(title: "Модель", value: viewModel.modelStatus)
+                        statusPill(title: L10n.t("label.model"), value: viewModel.modelStatus)
                     }
                     .buttonStyle(.plain)
-                    .help("Открыть папку модели в Finder")
+                    .help(L10n.t("help.openModelFolder"))
 
                     Button(action: viewModel.deleteModel) {
                         Image(systemName: "trash")
@@ -82,22 +82,22 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
                     .disabled(!viewModel.canDeleteModel)
-                    .help("Удалить модель")
+                    .help(L10n.t("help.deleteModel"))
 
                     Spacer(minLength: 10)
                 } else {
-                    statusPill(title: "Модель", value: viewModel.modelStatus)
+                    statusPill(title: L10n.t("label.model"), value: viewModel.modelStatus)
                     Spacer(minLength: 10)
 
                     Button(action: viewModel.downloadModelWithFolderPrompt) {
-                        Label(viewModel.isDownloadingModel ? "Загрузка..." : "Загрузить модель", systemImage: "arrow.down.circle")
+                        Label(viewModel.isDownloadingModel ? L10n.t("button.downloading") : L10n.t("button.downloadModel"), systemImage: "arrow.down.circle")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing)
 
                     Button(action: viewModel.connectExistingLocalModel) {
-                        Label("Указать локальную", systemImage: "externaldrive")
+                        Label(L10n.t("button.connectLocal"), systemImage: "externaldrive")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -122,7 +122,7 @@ struct ContentView: View {
                         .truncationMode(.middle)
                 }
             } else {
-                Text("Откуда будет скачана модель: \(viewModel.downloadSourcesHint)")
+                Text(L10n.f("text.downloadSources", viewModel.downloadSourcesHint))
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -155,13 +155,13 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button(action: viewModel.chooseFile) {
-                    Label("Добавить аудио/видео", systemImage: "plus")
+                    Label(L10n.t("button.addMedia"), systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing)
 
-                Text(viewModel.selectedFileURL?.path ?? "Файл не выбран")
+                Text(viewModel.selectedFileURL?.path ?? L10n.t("text.fileNotSelected"))
                     .font(.system(size: 12, weight: .regular, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -169,7 +169,7 @@ struct ContentView: View {
             }
 
             HStack(spacing: 10) {
-                Picker("Язык", selection: $viewModel.selectedLanguage) {
+                Picker(L10n.t("label.language"), selection: $viewModel.selectedLanguage) {
                     ForEach(viewModel.languageOptions, id: \.code) { option in
                         Text(option.title).tag(option.code)
                     }
@@ -177,12 +177,12 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 .frame(width: 150)
 
-                statusPill(title: "Определен язык", value: viewModel.detectedLanguage)
+                statusPill(title: L10n.t("label.detectedLanguage"), value: viewModel.detectedLanguage)
 
                 Spacer(minLength: 8)
 
                 Button(action: viewModel.transcribeSelectedFile) {
-                    Label(viewModel.isTranscribing ? "Транскрипция..." : "Транскрибировать", systemImage: "waveform.badge.magnifyingglass")
+                    Label(viewModel.isTranscribing ? L10n.t("button.transcribing") : L10n.t("button.transcribe"), systemImage: "waveform.badge.magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color(red: 0.05, green: 0.45, blue: 0.35))
@@ -197,19 +197,19 @@ struct ContentView: View {
     private var editorCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Результат")
+                Text(L10n.t("title.result"))
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Spacer()
 
-                Button("Скопировать все", action: viewModel.copyAllText)
+                Button(L10n.t("button.copyAll"), action: viewModel.copyAllText)
                     .buttonStyle(.bordered)
                     .disabled(viewModel.transcriptText.isEmpty)
 
-                Button("Сохранить TXT", action: viewModel.saveAsText)
+                Button(L10n.t("button.saveTXT"), action: viewModel.saveAsText)
                     .buttonStyle(.bordered)
                     .disabled(viewModel.transcriptText.isEmpty)
 
-                Button("Сохранить JSON", action: viewModel.saveAsJSON)
+                Button(L10n.t("button.saveJSON"), action: viewModel.saveAsJSON)
                     .buttonStyle(.bordered)
                     .disabled(viewModel.transcriptText.isEmpty)
             }
@@ -260,7 +260,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Text("Разработал Геннадий Захаров")
+            Text(L10n.t("footer.author"))
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(red: 0.08, green: 0.16, blue: 0.32))
         }

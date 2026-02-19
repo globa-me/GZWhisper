@@ -14,9 +14,9 @@ enum MediaPreprocessorError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .exportUnavailable:
-            return "Не удалось инициализировать экспорт аудио из видео."
+            return L10n.t("media.exportUnavailable")
         case let .exportFailed(details):
-            return "Ошибка извлечения аудио: \(details)"
+            return L10n.f("media.exportFailed", details)
         }
     }
 }
@@ -61,7 +61,7 @@ enum MediaPreprocessor {
         }
 
         guard exportSession.status == .completed else {
-            throw MediaPreprocessorError.exportFailed("Статус экспорта: \(exportSession.status.rawValue)")
+            throw MediaPreprocessorError.exportFailed(L10n.f("media.exportStatus", exportSession.status.rawValue))
         }
     }
 }
