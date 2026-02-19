@@ -1,34 +1,33 @@
 # GZWhisper
 
-Приложение для локальной транскрипции аудио/видео в текст.
+GZWhisper — приложение для локальной расшифровки аудио и видео в текст.
+
+Проект состоит из двух версий:
+- `macOS` приложение на SwiftUI (`Sources/`)
+- `Linux` приложение на Python/Tkinter (`linux/gzwhisper_linux.py`)
+
+После подключения модели расшифровка выполняется полностью локально, без отправки медиа на внешние серверы.
 
 ## Что умеет
 
-- UI в стиле текстового редактора.
-- Если модель не найдена: две кнопки `Загрузить модель` и `Указать локальную`.
-- Перед скачиванием приложение спрашивает папку назначения (по умолчанию `~/Documents/GZWhisper`).
-- Показ прогресса скачивания: проценты, сколько уже загружено, сколько всего, текущий источник.
-- Явно показывает URL источника модели (Hugging Face).
-- Клик по плашке модели открывает папку модели в Finder.
-- Красная кнопка корзины удаляет загруженную модель (или отвязывает внешнюю локальную).
+- Загрузка модели из Hugging Face или подключение уже скачанной локальной модели.
+- Показ прогресса загрузки модели.
 - Выбор аудио и видео файлов.
-- Авто-извлечение аудио из видео и отправка на транскрипцию.
-- Полностью локальная транскрипция после загрузки модели.
-- Копирование текста, сохранение в `TXT` и `JSON`.
-- Подпись в интерфейсе: `Разработал Геннадий Захаров`.
+- Автоматическое извлечение аудио из видео.
+- Транскрибация с автоопределением языка или ручным выбором языка.
+- Копирование результата и сохранение в `TXT`/`JSON`.
 
-## Linux-версия (установка)
+## Быстрый старт (Linux)
 
-В репозиторий добавлен Linux-аналог приложения: `linux/gzwhisper_linux.py`.
+### Зависимости
 
-### Что нужно на Linux
+Fedora:
 
-- `python3`
-- пакет `venv` для Python (обычно `python3-venv`)
-- `tkinter` (обычно `python3-tk`)
-- `ffmpeg` (для автоматического извлечения аудио из видео)
+```bash
+sudo dnf install -y python3 python3-pip python3-tkinter ffmpeg
+```
 
-Пример для Ubuntu/Debian:
+Ubuntu / Debian:
 
 ```bash
 sudo apt update
@@ -41,15 +40,21 @@ sudo apt install -y python3 python3-venv python3-tk ffmpeg
 ./scripts/install_linux.sh
 ```
 
-Скрипт установит launcher в `~/.local/bin/gzwhisper-linux` и desktop entry в `~/.local/share/applications`.
+Установщик добавит:
+- launcher: `~/.local/bin/gzwhisper-linux`
+- desktop entry: `~/.local/share/applications/gzwhisper-linux.desktop`
 
 ### Запуск
 
 ```bash
-~/.local/bin/gzwhisper-linux
+gzwhisper-linux
 ```
 
-или просто `gzwhisper-linux`, если `~/.local/bin` уже в `PATH`.
+Если команда не найдена:
+
+```bash
+~/.local/bin/gzwhisper-linux
+```
 
 ### Удаление
 
@@ -57,101 +62,61 @@ sudo apt install -y python3 python3-venv python3-tk ffmpeg
 ./scripts/uninstall_linux.sh
 ```
 
-### Linux-пакет для раздачи
+### Архив для раздачи
 
 ```bash
 ./scripts/package_linux.sh
 ```
 
-Архив:
+Результат: `build/GZWhisper-linux.tar.gz`
 
-`build/GZWhisper-linux.tar.gz`
+## Быстрый старт (macOS)
 
-## Сборка
+### Сборка приложения
 
 ```bash
 ./scripts/make_icon.sh
 ./scripts/build_app.sh
 ```
 
-Готовое приложение:
+Результат: `build/GZWhisper.app`
 
-`build/GZWhisper.app`
-
-## ZIP для сайта
+### ZIP для сайта
 
 ```bash
 ./scripts/package_zip.sh
 ```
 
-Архив:
+Результат: `build/GZWhisper-macOS.zip`
 
-`build/GZWhisper-macOS.zip`
-
-## Первый запуск
-
-1. Если модель отсутствует, выберите `Загрузить модель` или `Указать локальную`.
-2. При загрузке выберите папку для сохранения модели.
-3. Приложение создаст локальное Python-окружение и установит `faster-whisper`.
-4. После подключения модели можно добавлять аудио/видео и запускать транскрипцию.
-
-## Важные примечания
-
-- Все операции транскрипции выполняются локально после загрузки модели.
-- Для первого запуска нужен интернет только чтобы скачать Python-зависимости и модель.
-- Нужен установленный `python3` (системный `/usr/bin/python3` в macOS).
-
-## Совместимость и релиз
-
-- Сборка `GZWhisper` в `scripts/build_app.sh` теперь universal: `arm64 + x86_64`.
-- Минимальная версия macOS задается переменной `MIN_MACOS_VERSION` (по умолчанию `13.0`).
-- Для публичной раздачи через сайт рекомендуется подпись `Developer ID` + notarization, иначе Gatekeeper может блокировать запуск.
-
-Подписанная сборка:
-
-```bash
-SIGNING_IDENTITY="Developer ID Application: YOUR_NAME (TEAMID)" ./scripts/build_app.sh
-./scripts/package_zip.sh
-```
-
-## Временный обход для пользователя
-
-- Кликабельный файл:
-`build/Enable_GZWhisper.command`
-
-Скрипт:
-- при необходимости копирует `GZWhisper.app` в `/Applications`;
-- выполняет `xattr -dr com.apple.quarantine`;
-- добавляет приложение в локальный allow-list Gatekeeper;
-- пытается запустить приложение.
-
-## DMG-инсталлер
-
-Сборка:
+### DMG-инсталлер
 
 ```bash
 ./scripts/build_dmg.sh
 ```
 
-Готовый файл:
+Результат: `build/GZWhisper-Installer.dmg`
 
-`build/GZWhisper-Installer.dmg`
+## Первый запуск
 
-Внутри DMG:
-- `GZWhisper.app`
-- ссылка на `/Applications`
-- визуальный фон со стрелкой и подсказкой перетаскивания
-- `Enable_GZWhisper.command`
-- `Run_If_Blocked.txt` (fallback-команды для Terminal)
-- `Install_Instructions.txt`
+1. Открой приложение.
+2. Если модель ещё не подключена, нажми `Загрузить модель` или `Указать локальную`.
+3. Дождись подготовки Python-окружения и установки зависимостей (это делается один раз).
+4. Выбери аудио/видео файл и запусти транскрибацию.
 
-Если `.command` блокируется сообщением «повреждено», выполните команды из `Run_If_Blocked.txt` вручную в Terminal.
+## Важные заметки
 
-Минимальный ручной обход (если Gatekeeper блокирует запуск):
+- Для первого запуска нужен интернет: скачать модель и Python-зависимости.
+- Дальше можно работать офлайн (если модель уже есть локально).
+- Для видео на Linux нужен `ffmpeg`.
 
-```bash
-sudo xattr -dr com.apple.quarantine "/Volumes/GZWhisper Installer"
-sudo xattr -dr com.apple.quarantine "/Applications/GZWhisper.app"
-sudo spctl --add --label "GZWhisper Local" "/Applications/GZWhisper.app"
-open "/Applications/GZWhisper.app"
-```
+## Структура проекта
+
+- `Sources/` — macOS приложение (SwiftUI).
+- `linux/` — Linux приложение (Tkinter).
+- `Resources/transcription_worker.py` — общий Python worker для модели и транскрибации.
+- `scripts/` — скрипты сборки, упаковки и установки.
+
+## Лицензия
+
+Лицензия пока не добавлена. Если нужно, можно быстро добавить MIT.
