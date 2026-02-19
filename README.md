@@ -65,7 +65,7 @@ sudo apt install -y python3 python3-venv python3-tk ffmpeg
 
 Архив:
 
-`/Users/gennadiyzakharov/Desktop/my projects/VSProjects/GZWhisper/build/GZWhisper-linux.tar.gz`
+`build/GZWhisper-linux.tar.gz`
 
 ## Сборка
 
@@ -76,7 +76,7 @@ sudo apt install -y python3 python3-venv python3-tk ffmpeg
 
 Готовое приложение:
 
-`/Users/gennadiyzakharov/Desktop/my projects/VSProjects/GZWhisper/build/GZWhisper.app`
+`build/GZWhisper.app`
 
 ## ZIP для сайта
 
@@ -86,7 +86,7 @@ sudo apt install -y python3 python3-venv python3-tk ffmpeg
 
 Архив:
 
-`/Users/gennadiyzakharov/Desktop/my projects/VSProjects/GZWhisper/build/GZWhisper-macOS.zip`
+`build/GZWhisper-macOS.zip`
 
 ## Первый запуск
 
@@ -117,7 +117,7 @@ SIGNING_IDENTITY="Developer ID Application: YOUR_NAME (TEAMID)" ./scripts/build_
 ## Временный обход для пользователя
 
 - Кликабельный файл:
-`/Users/gennadiyzakharov/Desktop/my projects/VSProjects/GZWhisper/build/Enable_GZWhisper.command`
+`build/Enable_GZWhisper.command`
 
 Скрипт:
 - при необходимости копирует `GZWhisper.app` в `/Applications`;
@@ -135,7 +135,7 @@ SIGNING_IDENTITY="Developer ID Application: YOUR_NAME (TEAMID)" ./scripts/build_
 
 Готовый файл:
 
-`/Users/gennadiyzakharov/Desktop/my projects/VSProjects/GZWhisper/build/GZWhisper-Installer.dmg`
+`build/GZWhisper-Installer.dmg`
 
 Внутри DMG:
 - `GZWhisper.app`
