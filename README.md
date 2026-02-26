@@ -20,6 +20,20 @@ After the model is downloaded, transcription runs on the user's machine.
   - English (`en`)
   - Chinese (`zh`)
 
+## Download (macOS)
+
+Current macOS package target is `arm64` only (Apple Silicon).
+
+Download the latest installer DMG:
+
+- [GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
+
+Install:
+
+1. Open `GZWhisper-Installer.dmg`.
+2. Drag `GZWhisper.app` to `Applications`.
+3. Launch the app from `Applications`.
+
 ## Quick Start (Linux)
 
 ### 1) Install system dependencies
@@ -73,11 +87,23 @@ If the command is not in `PATH`, run:
 
 Output: `build/GZWhisper-linux.tar.gz`
 
-## Quick Start (macOS)
+## Maintainer: Build Release DMG (macOS)
+
+This section is for maintainers preparing release artifacts.
+
+### Build DMG installer
+
+```bash
+./scripts/build_dmg.sh
+```
+
+Output: `build/GZWhisper-Installer.dmg`
+
+## Build from Source (macOS, developers)
 
 Current macOS packaging target is `arm64` only (Apple Silicon).
 
-### Prepare embedded Python runtime
+### 1) Prepare embedded Python runtime
 
 ```bash
 ./scripts/prepare_embedded_python.sh
@@ -90,7 +116,7 @@ Use Apple Silicon Python (`arm64`). Example:
 PYTHON_BIN=/opt/homebrew/bin/python3 ./scripts/prepare_embedded_python.sh
 ```
 
-### Build app bundle
+### 2) Build app bundle
 
 ```bash
 ./scripts/make_icon.sh
@@ -99,7 +125,7 @@ PYTHON_BIN=/opt/homebrew/bin/python3 ./scripts/prepare_embedded_python.sh
 
 Output: `build/GZWhisper.app`
 
-### Build ZIP for distribution
+### 3) Build ZIP for distribution
 
 ```bash
 ./scripts/package_zip.sh
@@ -107,7 +133,7 @@ Output: `build/GZWhisper.app`
 
 Output: `build/GZWhisper-macOS.zip`
 
-### Build DMG installer
+### 4) Build DMG installer
 
 ```bash
 ./scripts/build_dmg.sh
