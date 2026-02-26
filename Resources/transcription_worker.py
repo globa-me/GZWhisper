@@ -312,13 +312,35 @@ def cmd_transcribe(args):
             language=args.language,
         )
 
+        total_seconds_raw = getattr(info, "duration", None)
+        try:
+            total_seconds = float(total_seconds_raw) if total_seconds_raw is not None else None
+        except Exception:
+            total_seconds = None
+
         items = []
         text_parts = []
+        processed_seconds = 0.0
         for seg in segments:
             seg_text = seg.text.strip()
             if seg_text:
                 text_parts.append(seg_text)
             items.append({"start": seg.start, "end": seg.end, "text": seg_text})
+
+            try:
+                seg_end = float(seg.end)
+                if seg_end > processed_seconds:
+                    processed_seconds = seg_end
+            except Exception:
+                pass
+
+            emit(
+                {
+                    "event": "progress",
+                    "processed_seconds": processed_seconds,
+                    "total_seconds": total_seconds,
+                }
+            )
 
         full_text = "\n".join(text_parts)
         payload = {

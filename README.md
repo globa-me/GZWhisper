@@ -75,6 +75,21 @@ Output: `build/GZWhisper-linux.tar.gz`
 
 ## Quick Start (macOS)
 
+Current macOS packaging target is `arm64` only (Apple Silicon).
+
+### Prepare embedded Python runtime
+
+```bash
+./scripts/prepare_embedded_python.sh
+```
+
+This script copies `Python.framework` into `Resources/` and optionally downloads a local wheelhouse for offline dependency install.
+Use Apple Silicon Python (`arm64`). Example:
+
+```bash
+PYTHON_BIN=/opt/homebrew/bin/python3 ./scripts/prepare_embedded_python.sh
+```
+
 ### Build app bundle
 
 ```bash
@@ -109,7 +124,8 @@ Output: `build/GZWhisper-Installer.dmg`
 
 ## Notes for non-technical users
 
-- Internet is needed only for first-time setup (model + Python dependencies).
+- For macOS builds with embedded wheelhouse, Python dependencies install without extra system prompts.
+- Internet is needed for first-time model download (and for dependency install only if no wheelhouse is bundled).
 - Once the model is local, transcription can run offline.
 - Linux video transcription requires `ffmpeg`.
 
@@ -119,6 +135,18 @@ Output: `build/GZWhisper-Installer.dmg`
 - `linux/` — Linux app source code.
 - `Resources/transcription_worker.py` — shared worker for model download/validation/transcription.
 - `scripts/` — build, package, install, uninstall scripts.
+
+## Changelog
+
+### 2026-02-26
+
+- Added macOS transcription queue and history with persisted items, status states, and quick file actions from the app.
+- Added streaming transcription progress events (`processed_seconds` / `total_seconds`) and ETA display in the UI.
+- Improved runtime bootstrap: app now searches bundled Python first, falls back to known system locations, and reports runtime issues.
+- Added optional offline dependency install from bundled `Resources/wheelhouse`.
+- Added `scripts/prepare_embedded_python.sh` and updated `scripts/build_app.sh` for Apple Silicon (`arm64`) packaging with embedded Python assets.
+- Expanded localized strings (EN/RU/ZH) for history, queue, progress, and runtime diagnostics.
+- Updated Linux subtitle text to match desktop positioning and refreshed `.gitignore` for embedded runtime artifacts.
 
 ## License
 

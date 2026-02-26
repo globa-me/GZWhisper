@@ -29,7 +29,7 @@ SUPPORTED_UI_LANGS = {"en", "ru", "zh"}
 
 TEXTS: dict[str, dict[str, str]] = {
     "en": {
-        "header_subtitle": "Local audio/video transcription with faster-whisper",
+        "header_subtitle": "Local audio and video transcription on your computer",
         "section_model": "Model",
         "section_input": "Input",
         "section_result": "Result",
@@ -103,7 +103,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "error_transcription_failed": "Transcription failed.",
     },
     "ru": {
-        "header_subtitle": "Локальная транскрипция аудио/видео через faster-whisper",
+        "header_subtitle": "Локальная транскрипция аудио и видео на вашем компьютере",
         "section_model": "Модель",
         "section_input": "Файл",
         "section_result": "Результат",
@@ -177,7 +177,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "error_transcription_failed": "Ошибка транскрипции.",
     },
     "zh": {
-        "header_subtitle": "使用 faster-whisper 的本地音视频转写",
+        "header_subtitle": "在您的电脑上进行本地音视频转写",
         "section_model": "模型",
         "section_input": "输入",
         "section_result": "结果",

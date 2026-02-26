@@ -37,8 +37,13 @@ enum ModelDeleteOutcome: Sendable {
     case unlinked(path: String)
 }
 
+enum TranscriptionEvent: Sendable {
+    case progress(processedSeconds: Double, totalSeconds: Double?)
+}
+
 enum WhisperEngineError: LocalizedError {
     case missingBundledWorker
+    case missingBootstrapPython
     case missingVenvPython
     case commandFailed(message: String)
     case malformedResponse
@@ -49,6 +54,8 @@ enum WhisperEngineError: LocalizedError {
         switch self {
         case .missingBundledWorker:
             return L10n.t("engine.missingWorker")
+        case .missingBootstrapPython:
+            return L10n.t("engine.missingBootstrapPython")
         case .missingVenvPython:
             return L10n.t("engine.missingVenvPython")
         case let .commandFailed(message):
@@ -119,6 +126,18 @@ final class WhisperEngine: @unchecked Sendable {
         try syncWorkerScript()
         try ensureVirtualEnvironment(status: status)
         try ensureDependencies(status: status)
+    }
+
+    func runtimeIssueDescription() -> String? {
+        do {
+            _ = try resolvedBootstrapPythonURL()
+            return nil
+        } catch {
+            if let localized = error as? LocalizedError, let description = localized.errorDescription {
+                return description
+            }
+            return error.localizedDescription
+        }
     }
 
     func downloadModel(
@@ -252,7 +271,12 @@ final class WhisperEngine: @unchecked Sendable {
         }
     }
 
-    func transcribe(inputAudioURL: URL, languageCode: String?, status: (String) -> Void) throws -> TranscriptionResult {
+    func transcribe(
+        inputAudioURL: URL,
+        languageCode: String?,
+        status: (String) -> Void,
+        onEvent: @escaping (TranscriptionEvent) -> Void
+    ) throws -> TranscriptionResult {
         try prepareEnvironment(status: status)
 
         guard let reference = currentModelReference() else {
@@ -273,8 +297,28 @@ final class WhisperEngine: @unchecked Sendable {
             arguments.append(contentsOf: ["--language", languageCode])
         }
 
-        let result = try runPython(arguments: arguments)
-        let payload = parsePayload(stdout: result.stdout)
+        var finalPayload: [String: Any]?
+        let result = try runPythonStreaming(arguments: arguments) { line in
+            guard let json = self.parseJSONLine(line) else { return }
+
+            if let event = json["event"] as? String {
+                switch event {
+                case "progress":
+                    let processed = (json["processed_seconds"] as? NSNumber)?.doubleValue ?? 0
+                    let totalNumber = json["total_seconds"] as? NSNumber
+                    onEvent(.progress(processedSeconds: processed, totalSeconds: totalNumber?.doubleValue))
+                default:
+                    break
+                }
+                return
+            }
+
+            if json["ok"] != nil {
+                finalPayload = json
+            }
+        }
+
+        let payload = finalPayload
 
         if result.exitCode != 0 || payload?["ok"] as? Bool != true {
             let details = payload?["details"] as? String
@@ -337,8 +381,9 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         status(L10n.t("engine.creatingVenv"))
+        let bootstrapPythonURL = try resolvedBootstrapPythonURL()
         let result = try ProcessRunner.run(
-            executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+            executableURL: bootstrapPythonURL,
             arguments: ["-m", "venv", venvDirectory.path]
         )
 
@@ -361,6 +406,24 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         status(L10n.t("engine.installingDeps"))
+
+        if let wheelhouseURL = bundledWheelhouseURL() {
+            let bundledInstallResult = try ProcessRunner.run(
+                executableURL: pythonURL,
+                arguments: [
+                    "-m", "pip", "install",
+                    "--no-index",
+                    "--find-links", wheelhouseURL.path,
+                    "--upgrade",
+                    "faster-whisper",
+                    "huggingface_hub",
+                ]
+            )
+
+            if bundledInstallResult.exitCode == 0 {
+                return
+            }
+        }
 
         _ = try ProcessRunner.run(
             executableURL: pythonURL,
@@ -415,6 +478,54 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         throw WhisperEngineError.missingVenvPython
+    }
+
+    private func resolvedBootstrapPythonURL() throws -> URL {
+        for candidate in bootstrapPythonCandidates() {
+            if fileManager.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+
+        throw WhisperEngineError.missingBootstrapPython
+    }
+
+    private func bootstrapPythonCandidates() -> [URL] {
+        var candidates: [URL] = []
+
+        if let resourcesURL = Bundle.main.resourceURL {
+            candidates.append(resourcesURL.appendingPathComponent("python/bin/python3"))
+        }
+
+        let bundleURL = Bundle.main.bundleURL
+        candidates.append(bundleURL.appendingPathComponent("Contents/Frameworks/Python.framework/Versions/Current/bin/python3"))
+        candidates.append(bundleURL.appendingPathComponent("Contents/Frameworks/Python.framework/Versions/3.13/bin/python3"))
+        candidates.append(bundleURL.appendingPathComponent("Contents/Frameworks/Python.framework/Versions/3.12/bin/python3"))
+        candidates.append(bundleURL.appendingPathComponent("Contents/Frameworks/Python.framework/Versions/3.11/bin/python3"))
+
+        candidates.append(URL(fileURLWithPath: "/opt/homebrew/bin/python3"))
+        candidates.append(URL(fileURLWithPath: "/usr/local/bin/python3"))
+        candidates.append(URL(fileURLWithPath: "/Library/Frameworks/Python.framework/Versions/Current/bin/python3"))
+
+        return candidates
+    }
+
+    private func bundledWheelhouseURL() -> URL? {
+        guard let resourcesURL = Bundle.main.resourceURL else {
+            return nil
+        }
+
+        let wheelhouseURL = resourcesURL.appendingPathComponent("wheelhouse", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: wheelhouseURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: wheelhouseURL.path), !entries.isEmpty else {
+            return nil
+        }
+
+        return wheelhouseURL
     }
 
     private var venvPythonURL: URL {
