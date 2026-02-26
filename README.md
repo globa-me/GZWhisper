@@ -15,7 +15,13 @@ After the model is downloaded, transcription runs on the user's machine.
 - Show download progress while the model is being fetched.
 - Accept audio and video files.
 - Extract audio from video automatically.
+- Record audio directly in the macOS app:
+  - `System + microphone`
+  - `System only`
+  - `Microphone only`
+- Pause and resume recording, then save recorded audio next to transcripts.
 - Transcribe locally and save output as `TXT` or `JSON`.
+- Keep a history of jobs and recordings with type badges (`t`, `a`, `t+a`) and quick actions.
 - Auto-switch app language based on system locale:
   - Russian (`ru`)
   - English (`en`)
@@ -28,6 +34,11 @@ Current macOS package target is `arm64` only (Apple Silicon).
 Download the latest installer DMG:
 
 - [GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
+
+Direct version links:
+
+- [v1.2 (current): GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.2.0/GZWhisper-Installer.dmg)
+- [v1.1 (legacy, no recording): GZWhisper-Installer-1.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.1.0/GZWhisper-Installer-1.1.dmg)
 
 Install:
 
@@ -129,6 +140,13 @@ This section is for maintainers preparing release artifacts.
 
 Output: `build/GZWhisper-Installer.dmg`
 
+Optional version override for release builds:
+
+```bash
+APP_VERSION=1.2 APP_BUILD=4 ./scripts/build_app.sh
+./scripts/build_dmg.sh
+```
+
 ## Build from Source (macOS, developers)
 
 Current macOS packaging target is `arm64` only (Apple Silicon).
@@ -195,7 +213,17 @@ Output: `build/GZWhisper-Installer.dmg`
 
 ## Changelog
 
-### 2026-02-26
+### 2026-02-26 (v1.2, build 4)
+
+- Added macOS audio recording modes: `System + microphone`, `System only`, `Microphone only`.
+- Added recording controls (`Start`, `Pause`, `Resume`, `Stop`) and saving recorded audio into transcripts folder.
+- Added history type badges (`t`, `a`, `t+a`) with tooltips and quick actions for audio/transcript files.
+- Added queue-from-history action for recorded audio files.
+- Added footer links on macOS: `GitHub | Built by Gennadiy Zakharov`.
+- Fixed crash when starting `System + microphone` recording after permissions were granted.
+- Simplified transcription loading UI to a single active spinner in history.
+
+### 2026-02-26 (v1.1, build 2)
 
 - Added macOS transcription queue and history with persisted items, status states, and quick file actions from the app.
 - Added streaming transcription progress events (`processed_seconds` / `total_seconds`) and ETA display in the UI.
