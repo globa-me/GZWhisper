@@ -9,7 +9,10 @@ import subprocess
 import sys
 import tempfile
 import threading
-from dataclasses import dataclass
+import time
+import uuid
+import importlib.util
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -18,7 +21,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 APP_NAME = "GZWhisper"
-APP_ID = "gzwhisper-linux"
+IS_WINDOWS = os.name == "nt"
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+APP_ID = "gzwhisper-windows" if IS_WINDOWS else "gzwhisper-linux"
 MODEL_REPO_CANDIDATES = [
     "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     "SYSTRAN/faster-whisper-large-v3",
@@ -101,6 +106,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "error_select_media_first": "Select an audio/video file first.",
         "error_connect_model_first": "Connect a model first.",
         "error_transcription_failed": "Transcription failed.",
+        "section_history": "History",
+        "label_queue": "Queue:",
+        "btn_transcribe_all": "Transcribe all",
+        "btn_open_transcript": "Open transcript",
+        "btn_delete_item": "Delete item",
+        "text_history_empty": "History is empty. Add files and run transcription.",
+        "text_queue_empty": "Queue is empty",
+        "text_queue_single": "1 file in queue",
+        "text_queue_many": "{count} files in queue",
+        "status_files_added": "Files added: {count}",
+        "status_queue_empty": "There are no files in queue.",
+        "status_queue_completed": "Queue completed.",
+        "status_transcribing_file": "Transcribing: {name}",
+        "status_transcription_completed_file": "Completed: {name}",
+        "status_transcription_progress": "{percent:.0f}% • {name}",
+        "status_history_loaded": "Loaded from history: {name}",
+        "status_history_deleted": "Removed from history: {name}",
+        "status_history_delete_blocked": "Cannot delete a file while it is being transcribed.",
+        "status_no_transcript_file": "Transcript file was not found.",
+        "status_file_missing": "File is missing: {name}",
+        "status_queued": "Queued",
+        "status_processing": "Processing",
+        "status_completed": "Completed",
+        "status_failed": "Failed",
+        "status_unknown_duration": "--:--:--",
+        "status_eta": "ETA {value}",
+        "status_unsupported_files": "No supported audio/video files were added.",
     },
     "ru": {
         "header_subtitle": "Локальная транскрипция аудио и видео на вашем компьютере",
@@ -175,6 +207,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "error_select_media_first": "Сначала выберите аудио/видео файл.",
         "error_connect_model_first": "Сначала подключите модель.",
         "error_transcription_failed": "Ошибка транскрипции.",
+        "section_history": "История",
+        "label_queue": "Очередь:",
+        "btn_transcribe_all": "Транскрибировать все",
+        "btn_open_transcript": "Открыть транскрипт",
+        "btn_delete_item": "Удалить запись",
+        "text_history_empty": "История пуста. Добавьте файлы и запустите транскрибацию.",
+        "text_queue_empty": "Очередь пуста",
+        "text_queue_single": "1 файл в очереди",
+        "text_queue_many": "{count} файлов в очереди",
+        "status_files_added": "Файлов добавлено: {count}",
+        "status_queue_empty": "В очереди нет файлов.",
+        "status_queue_completed": "Очередь завершена.",
+        "status_transcribing_file": "Транскрибирую: {name}",
+        "status_transcription_completed_file": "Готово: {name}",
+        "status_transcription_progress": "{percent:.0f}% • {name}",
+        "status_history_loaded": "Загружено из истории: {name}",
+        "status_history_deleted": "Удалено из истории: {name}",
+        "status_history_delete_blocked": "Нельзя удалить файл во время транскрипции.",
+        "status_no_transcript_file": "Файл транскрипта не найден.",
+        "status_file_missing": "Файл отсутствует: {name}",
+        "status_queued": "В очереди",
+        "status_processing": "В работе",
+        "status_completed": "Готово",
+        "status_failed": "Ошибка",
+        "status_unknown_duration": "--:--:--",
+        "status_eta": "Осталось {value}",
+        "status_unsupported_files": "Не добавлено ни одного поддерживаемого аудио/видео файла.",
     },
     "zh": {
         "header_subtitle": "在您的电脑上进行本地音视频转写",
@@ -249,6 +308,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "error_select_media_first": "请先选择音频/视频文件。",
         "error_connect_model_first": "请先连接模型。",
         "error_transcription_failed": "转写失败。",
+        "section_history": "历史",
+        "label_queue": "队列：",
+        "btn_transcribe_all": "转写全部",
+        "btn_open_transcript": "打开转写",
+        "btn_delete_item": "删除记录",
+        "text_history_empty": "历史为空。添加文件后开始转写。",
+        "text_queue_empty": "队列为空",
+        "text_queue_single": "队列中 1 个文件",
+        "text_queue_many": "队列中 {count} 个文件",
+        "status_files_added": "已添加文件：{count}",
+        "status_queue_empty": "队列中没有文件。",
+        "status_queue_completed": "队列已完成。",
+        "status_transcribing_file": "正在转写：{name}",
+        "status_transcription_completed_file": "已完成：{name}",
+        "status_transcription_progress": "{percent:.0f}% • {name}",
+        "status_history_loaded": "已从历史加载：{name}",
+        "status_history_deleted": "已从历史删除：{name}",
+        "status_history_delete_blocked": "文件转写中，无法删除。",
+        "status_no_transcript_file": "未找到转写文件。",
+        "status_file_missing": "文件缺失：{name}",
+        "status_queued": "排队中",
+        "status_processing": "处理中",
+        "status_completed": "已完成",
+        "status_failed": "失败",
+        "status_unknown_duration": "--:--:--",
+        "status_eta": "预计剩余 {value}",
+        "status_unsupported_files": "没有添加支持的音频/视频文件。",
     },
 }
 
@@ -260,6 +346,27 @@ class LocalModelReference:
     source_type: str
     source_repo: str | None
     configured_at: str
+
+
+@dataclass
+class TranscriptHistoryItem:
+    id: str
+    source_file_name: str
+    source_file_path: str
+    created_at: str
+    media_duration_seconds: float | None
+    transcript_path: str | None = None
+    detected_language: str | None = None
+    model_id: str | None = None
+    state: str = "queued"
+    error_message: str | None = None
+    progress_fraction: float | None = None
+    eta_seconds: float | None = None
+    is_runtime_only: bool = False
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state in {"completed", "failed"}
 
 
 def detect_ui_lang() -> str:
@@ -287,6 +394,15 @@ def tr(lang: str, key: str, **kwargs: Any) -> str:
 
 
 def get_data_root() -> Path:
+    if IS_WINDOWS:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data)
+        app_data = os.environ.get("APPDATA")
+        if app_data:
+            return Path(app_data)
+        return Path.home() / "AppData" / "Local"
+
     xdg_data_home = os.environ.get("XDG_DATA_HOME")
     if xdg_data_home:
         return Path(xdg_data_home)
@@ -299,11 +415,29 @@ VENV_DIR = SUPPORT_DIR / "venv"
 WORKER_SCRIPT_RUNTIME = SUPPORT_DIR / "transcription_worker.py"
 MODEL_REFERENCE_PATH = SUPPORT_DIR / "selected_model.json"
 DEFAULT_MODEL_DOWNLOAD_DIR = Path.home() / "Documents" / "GZWhisper"
+TRANSCRIPTS_DIR = DEFAULT_MODEL_DOWNLOAD_DIR / "transcripts"
+HISTORY_FILE_PATH = TRANSCRIPTS_DIR / "history.json"
+SUPPORTED_MEDIA_EXTENSIONS = {
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".mp4",
+    ".mkv",
+    ".mov",
+    ".avi",
+    ".webm",
+    ".m4v",
+}
 
 
 def find_worker_template() -> Path:
     current_dir = Path(__file__).resolve().parent
     candidates = [
+        Path(getattr(sys, "_MEIPASS", "")) / "Resources" / "transcription_worker.py",
         current_dir / "transcription_worker.py",
         current_dir.parent / "Resources" / "transcription_worker.py",
         current_dir.parent.parent / "Resources" / "transcription_worker.py",
@@ -340,6 +474,15 @@ def parse_last_json(stdout: str) -> dict[str, Any] | None:
 
 
 def get_venv_python() -> Path:
+    if IS_WINDOWS:
+        py_win = VENV_DIR / "Scripts" / "python.exe"
+        if py_win.exists():
+            return py_win
+
+        py_win_noext = VENV_DIR / "Scripts" / "python"
+        if py_win_noext.exists():
+            return py_win_noext
+
     py3 = VENV_DIR / "bin" / "python3"
     if py3.exists():
         return py3
@@ -351,6 +494,49 @@ def get_venv_python() -> Path:
     raise FileNotFoundError(tr(detect_ui_lang(), "error_venv_python_missing"))
 
 
+def sanitize_file_name(name: str) -> str:
+    invalid = "\\/:*?\"<>|"
+    for char in invalid:
+        name = name.replace(char, "-")
+    value = name.strip().strip(".")
+    return value or "transcript"
+
+
+def parse_iso_datetime(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
+def run_worker_relay(arguments: list[str]) -> int:
+    try:
+        worker_path = find_worker_template()
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    spec = importlib.util.spec_from_file_location("gzwhisper_worker", worker_path)
+    if spec is None or spec.loader is None:
+        print(f"Worker module could not be loaded: {worker_path}", file=sys.stderr)
+        return 2
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    previous_argv = sys.argv[:]
+    sys.argv = [str(worker_path), *arguments]
+    try:
+        module.main()
+        return 0
+    except SystemExit as exc:  # pragma: no cover - passthrough exit code
+        code = exc.code
+        if isinstance(code, int):
+            return code
+        return 0
+    finally:
+        sys.argv = previous_argv
+
+
 class GZWhisperLinuxApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -359,13 +545,15 @@ class GZWhisperLinuxApp(tk.Tk):
         self.worker_lang = self.ui_lang if self.ui_lang in SUPPORTED_UI_LANGS else "en"
 
         self.title(APP_NAME)
-        self.geometry("1100x760")
-        self.minsize(900, 640)
+        self.geometry("1180x820")
+        self.minsize(980, 700)
 
         self.ui_queue: queue.Queue[tuple[Callable[..., None], tuple[Any, ...], dict[str, Any]]] = queue.Queue()
         self.is_busy = False
-        self.selected_file: Path | None = None
         self.current_model: LocalModelReference | None = None
+        self.history_items: list[TranscriptHistoryItem] = []
+        self.selected_history_item_id: str | None = None
+        self.current_editor_source_path: str | None = None
         self.last_segments: list[dict[str, Any]] = []
         self.last_model_id: str | None = None
         self.detected_language = "-"
@@ -382,15 +570,18 @@ class GZWhisperLinuxApp(tk.Tk):
         self.model_status_var = tk.StringVar(value=self.t("status_model_not_connected"))
         self.model_source_var = tk.StringVar(value="")
         self.model_location_var = tk.StringVar(value="")
-        self.file_var = tk.StringVar(value=self.t("text_file_not_selected"))
         self.status_var = tk.StringVar(value=self.t("status_ready"))
         self.download_source_var = tk.StringVar(value="")
         self.download_progress_var = tk.StringVar(value="")
         self.detected_language_var = tk.StringVar(value="-")
         self.language_var = tk.StringVar(value=self.language_code_to_display["auto"])
+        self.queue_summary_var = tk.StringVar(value=self.t("text_queue_empty"))
+        self.history_count_var = tk.StringVar(value="0")
 
         self._build_ui()
         self._load_model_reference()
+        self._load_history_from_disk()
+        self._refresh_history_view()
         self._drain_ui_queue()
 
     def t(self, key: str, **kwargs: Any) -> str:
@@ -444,7 +635,6 @@ class GZWhisperLinuxApp(tk.Tk):
         self.progress_bar.grid(row=4, column=0, columnspan=5, sticky="ew", pady=(4, 0))
 
         ttk.Label(model_frame, textvariable=self.download_progress_var).grid(row=5, column=0, columnspan=5, sticky="w", pady=(2, 0))
-
         model_frame.columnconfigure(0, weight=1)
 
         file_frame = ttk.LabelFrame(outer, text=self.t("section_input"), padding=12)
@@ -453,7 +643,11 @@ class GZWhisperLinuxApp(tk.Tk):
         self.btn_choose_file = ttk.Button(file_frame, text=self.t("btn_add_media"), command=self.choose_file)
         self.btn_choose_file.grid(row=0, column=0, sticky="w")
 
-        ttk.Label(file_frame, textvariable=self.file_var).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(file_frame, text=self.t("label_queue")).grid(row=0, column=1, sticky="e", padx=(12, 6))
+        ttk.Label(file_frame, textvariable=self.queue_summary_var).grid(row=0, column=2, sticky="w")
+
+        self.btn_transcribe = ttk.Button(file_frame, text=self.t("btn_transcribe_all"), command=self.transcribe_all_queued_files)
+        self.btn_transcribe.grid(row=0, column=3, sticky="e", padx=(10, 0))
 
         ttk.Label(file_frame, text=self.t("label_language")).grid(row=1, column=0, sticky="w", pady=(10, 0))
 
@@ -464,15 +658,59 @@ class GZWhisperLinuxApp(tk.Tk):
             textvariable=self.language_var,
             width=18,
         )
-        self.language_combo.grid(row=1, column=1, sticky="w", pady=(10, 0))
+        self.language_combo.grid(row=1, column=1, columnspan=2, sticky="w", pady=(10, 0))
 
-        ttk.Label(file_frame, text=self.t("label_detected")).grid(row=1, column=2, sticky="e", padx=(20, 6), pady=(10, 0))
-        ttk.Label(file_frame, textvariable=self.detected_language_var).grid(row=1, column=3, sticky="w", pady=(10, 0))
+        ttk.Label(file_frame, text=self.t("label_detected")).grid(row=1, column=3, sticky="e", padx=(20, 6), pady=(10, 0))
+        ttk.Label(file_frame, textvariable=self.detected_language_var).grid(row=1, column=4, sticky="w", pady=(10, 0))
 
-        self.btn_transcribe = ttk.Button(file_frame, text=self.t("btn_transcribe"), command=self.transcribe_selected_file)
-        self.btn_transcribe.grid(row=1, column=4, sticky="e", padx=(10, 0), pady=(10, 0))
+        file_frame.columnconfigure(2, weight=1)
 
-        file_frame.columnconfigure(1, weight=1)
+        history_frame = ttk.LabelFrame(outer, text=self.t("section_history"), padding=12)
+        history_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 8))
+
+        history_top = ttk.Frame(history_frame)
+        history_top.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(history_top, textvariable=self.history_count_var).pack(side=tk.LEFT)
+
+        self.btn_open_transcript = ttk.Button(
+            history_top,
+            text=self.t("btn_open_transcript"),
+            command=self.open_selected_transcript,
+        )
+        self.btn_open_transcript.pack(side=tk.RIGHT)
+
+        self.btn_delete_history = ttk.Button(
+            history_top,
+            text=self.t("btn_delete_item"),
+            command=self.delete_selected_history_item,
+        )
+        self.btn_delete_history.pack(side=tk.RIGHT, padx=(0, 8))
+
+        tree_wrap = ttk.Frame(history_frame)
+        tree_wrap.pack(fill=tk.BOTH, expand=True)
+
+        self.history_tree = ttk.Treeview(
+            tree_wrap,
+            columns=("file", "state", "meta"),
+            show="headings",
+            height=8,
+        )
+        self.history_tree.heading("file", text="File")
+        self.history_tree.heading("state", text="State")
+        self.history_tree.heading("meta", text="Meta")
+        self.history_tree.column("file", width=360, anchor=tk.W)
+        self.history_tree.column("state", width=180, anchor=tk.W)
+        self.history_tree.column("meta", width=360, anchor=tk.W)
+        self.history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.history_tree.bind("<<TreeviewSelect>>", self._on_history_selected)
+
+        tree_scroll = ttk.Scrollbar(tree_wrap, orient=tk.VERTICAL, command=self.history_tree.yview)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.history_tree.configure(yscrollcommand=tree_scroll.set)
+
+        self.history_empty_label = ttk.Label(history_frame, text=self.t("text_history_empty"))
+        self.history_empty_label.pack(fill=tk.X, pady=(6, 0))
 
         output_frame = ttk.LabelFrame(outer, text=self.t("section_result"), padding=12)
         output_frame.pack(fill=tk.BOTH, expand=True)
@@ -535,9 +773,31 @@ class GZWhisperLinuxApp(tk.Tk):
         self.is_busy = False
         self._refresh_controls()
 
+    def _queue_count(self) -> int:
+        return sum(1 for item in self.history_items if item.state == "queued")
+
+    def _update_queue_summary(self) -> None:
+        count = self._queue_count()
+        if count == 0:
+            self.queue_summary_var.set(self.t("text_queue_empty"))
+        elif count == 1:
+            self.queue_summary_var.set(self.t("text_queue_single"))
+        else:
+            self.queue_summary_var.set(self.t("text_queue_many", count=count))
+
+    def _selected_history_item(self) -> TranscriptHistoryItem | None:
+        if not self.selected_history_item_id:
+            return None
+        for item in self.history_items:
+            if item.id == self.selected_history_item_id:
+                return item
+        return None
+
     def _refresh_controls(self) -> None:
         connected = self.current_model is not None
         has_text = bool(self.text.get("1.0", tk.END).strip())
+        has_queued = self._queue_count() > 0
+        selected_item = self._selected_history_item()
 
         state_normal = tk.NORMAL if not self.is_busy else tk.DISABLED
         self.btn_download_model.configure(state=state_normal)
@@ -546,8 +806,19 @@ class GZWhisperLinuxApp(tk.Tk):
         self.btn_delete_model.configure(state=tk.NORMAL if connected and not self.is_busy else tk.DISABLED)
         self.btn_choose_file.configure(state=state_normal)
 
-        can_transcribe = connected and self.selected_file is not None and not self.is_busy
+        can_transcribe = connected and has_queued and not self.is_busy
         self.btn_transcribe.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
+
+        can_open_transcript = (
+            selected_item is not None
+            and selected_item.state == "completed"
+            and bool(selected_item.transcript_path)
+            and not self.is_busy
+        )
+        self.btn_open_transcript.configure(state=tk.NORMAL if can_open_transcript else tk.DISABLED)
+
+        can_delete_item = selected_item is not None and selected_item.state != "processing" and not self.is_busy
+        self.btn_delete_history.configure(state=tk.NORMAL if can_delete_item else tk.DISABLED)
 
         text_btn_state = tk.NORMAL if has_text and not self.is_busy else tk.DISABLED
         self.btn_copy.configure(state=text_btn_state)
@@ -555,6 +826,7 @@ class GZWhisperLinuxApp(tk.Tk):
         self.btn_save_json.configure(state=text_btn_state)
 
         self.language_combo.configure(state="readonly" if not self.is_busy else "disabled")
+        self._update_queue_summary()
 
     def _set_status(self, value: str) -> None:
         self.status_var.set(value)
@@ -601,18 +873,33 @@ class GZWhisperLinuxApp(tk.Tk):
 
     def _prepare_runtime(self, status: Callable[[str], None]) -> None:
         SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
-        self._sync_worker_script()
+        if not IS_FROZEN:
+            self._sync_worker_script()
+
+        if IS_FROZEN:
+            try:
+                import faster_whisper  # noqa: F401
+                import huggingface_hub  # noqa: F401
+            except Exception as exc:
+                raise RuntimeError(self.t("error_install_deps", details=str(exc))) from exc
+            return
 
         try:
             python_path = get_venv_python()
         except FileNotFoundError:
             status(self.t("status_preparing_runtime"))
-            base_python = shutil.which("python3") or sys.executable
+            base_python = shutil.which("python3") or shutil.which("python")
+            if base_python is None and IS_WINDOWS:
+                base_python = shutil.which("py")
             if not base_python:
                 raise RuntimeError(self.t("error_python_missing"))
 
+            create_venv_cmd = [base_python, "-m", "venv", str(VENV_DIR)]
+            if IS_WINDOWS and Path(base_python).name.lower() == "py":
+                create_venv_cmd = [base_python, "-3", "-m", "venv", str(VENV_DIR)]
+
             venv_result = subprocess.run(
-                [base_python, "-m", "venv", str(VENV_DIR)],
+                create_venv_cmd,
                 capture_output=True,
                 text=True,
             )
@@ -648,6 +935,9 @@ class GZWhisperLinuxApp(tk.Tk):
             raise RuntimeError(self.t("error_install_deps", details=details))
 
     def _worker_command(self, args: list[str]) -> list[str]:
+        if IS_FROZEN:
+            return [sys.executable, "--worker-relay", *args]
+
         python_path = get_venv_python()
         return [str(python_path), str(WORKER_SCRIPT_RUNTIME), *args]
 
@@ -748,6 +1038,517 @@ class GZWhisperLinuxApp(tk.Tk):
 
         self._refresh_controls()
 
+    def _history_state_label(self, state: str) -> str:
+        if state == "queued":
+            return self.t("status_queued")
+        if state == "processing":
+            return self.t("status_processing")
+        if state == "completed":
+            return self.t("status_completed")
+        if state == "failed":
+            return self.t("status_failed")
+        return state
+
+    def _formatted_clock(self, seconds: float) -> str:
+        total = max(int(seconds), 0)
+        hours = total // 3600
+        minutes = (total % 3600) // 60
+        secs = total % 60
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def _formatted_duration(self, seconds: float | None) -> str:
+        if seconds is None or seconds <= 0:
+            return self.t("status_unknown_duration")
+        return self._formatted_clock(seconds)
+
+    def _history_meta_text(self, item: TranscriptHistoryItem) -> str:
+        created = parse_iso_datetime(item.created_at).astimezone().strftime("%Y-%m-%d %H:%M")
+        duration = self._formatted_duration(item.media_duration_seconds)
+        parts = [created, duration]
+        if item.state == "processing" and item.eta_seconds is not None:
+            parts.append(self.t("status_eta", value=self._formatted_clock(item.eta_seconds)))
+        return " | ".join(parts)
+
+    def _sort_history(self) -> None:
+        self.history_items.sort(key=lambda item: parse_iso_datetime(item.created_at), reverse=True)
+
+    def _refresh_history_view(self) -> None:
+        self._sort_history()
+
+        selected = self.selected_history_item_id
+        for iid in self.history_tree.get_children():
+            self.history_tree.delete(iid)
+
+        for item in self.history_items:
+            state_text = self._history_state_label(item.state)
+            if item.state == "processing" and item.progress_fraction is not None:
+                state_text = f"{state_text} {item.progress_fraction * 100:.0f}%"
+
+            self.history_tree.insert(
+                "",
+                tk.END,
+                iid=item.id,
+                values=(item.source_file_name, state_text, self._history_meta_text(item)),
+            )
+
+        if selected and self.history_tree.exists(selected):
+            self.history_tree.selection_set(selected)
+            self.history_tree.see(selected)
+
+        self.history_count_var.set(str(len(self.history_items)))
+        if self.history_items:
+            if self.history_empty_label.winfo_ismapped():
+                self.history_empty_label.pack_forget()
+        elif not self.history_empty_label.winfo_ismapped():
+            self.history_empty_label.pack(fill=tk.X, pady=(6, 0))
+
+        self._refresh_controls()
+
+    def _load_history_from_disk(self) -> None:
+        if not HISTORY_FILE_PATH.exists():
+            self.history_items = []
+            return
+
+        try:
+            payload = json.loads(HISTORY_FILE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            self.history_items = []
+            return
+
+        if not isinstance(payload, list):
+            self.history_items = []
+            return
+
+        loaded: list[TranscriptHistoryItem] = []
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                item = TranscriptHistoryItem(**entry)
+            except TypeError:
+                continue
+
+            item.progress_fraction = None
+            item.eta_seconds = None
+            item.is_runtime_only = False
+            if not item.is_terminal:
+                item.state = "failed"
+                item.error_message = self.t("status_failed")
+            loaded.append(item)
+
+        self.history_items = loaded
+
+    def _persist_history_to_disk(self) -> None:
+        persisted: list[dict[str, Any]] = []
+        for item in self.history_items:
+            if item.state not in {"completed", "failed"}:
+                continue
+            if item.state == "completed" and not item.transcript_path:
+                continue
+
+            payload = asdict(item)
+            payload["progress_fraction"] = None
+            payload["eta_seconds"] = None
+            payload["is_runtime_only"] = False
+            persisted.append(payload)
+
+        TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        HISTORY_FILE_PATH.write_text(json.dumps(persisted, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _on_history_selected(self, _event: Any) -> None:
+        selection = self.history_tree.selection()
+        if not selection:
+            self.selected_history_item_id = None
+            self._refresh_controls()
+            return
+
+        self.selected_history_item_id = selection[0]
+        self.open_history_item(self.selected_history_item_id)
+        self._refresh_controls()
+
+    def _find_history_item(self, item_id: str) -> TranscriptHistoryItem | None:
+        for item in self.history_items:
+            if item.id == item_id:
+                return item
+        return None
+
+    def _is_supported_media_file(self, path: Path) -> bool:
+        return path.suffix.lower() in SUPPORTED_MEDIA_EXTENSIONS
+
+    def _add_media_files(self, paths: list[Path]) -> None:
+        candidates: list[Path] = []
+        for source in paths:
+            resolved = source.expanduser().resolve()
+            if not resolved.is_file():
+                continue
+            if not self._is_supported_media_file(resolved):
+                continue
+            candidates.append(resolved)
+
+        if not candidates:
+            self._set_status(self.t("status_unsupported_files"))
+            return
+
+        now = datetime.now(timezone.utc)
+        for offset, source in enumerate(candidates):
+            created = now.timestamp() + (offset * 0.001)
+            item = TranscriptHistoryItem(
+                id=str(uuid.uuid4()),
+                source_file_name=source.name,
+                source_file_path=str(source),
+                created_at=datetime.fromtimestamp(created, timezone.utc).isoformat(),
+                media_duration_seconds=None,
+                state="queued",
+                is_runtime_only=True,
+            )
+            self.history_items.append(item)
+            self.selected_history_item_id = item.id
+
+        self._set_status(self.t("status_files_added", count=len(candidates)))
+        self._refresh_history_view()
+
+    def _save_transcript_file(self, source_file: Path, text: str) -> Path:
+        TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        base = sanitize_file_name(source_file.stem)
+        candidate = TRANSCRIPTS_DIR / f"{base}-{timestamp}.txt"
+        suffix = 1
+        while candidate.exists():
+            candidate = TRANSCRIPTS_DIR / f"{base}-{timestamp}-{suffix}.txt"
+            suffix += 1
+
+        candidate.write_text(text, encoding="utf-8")
+        return candidate
+
+    def _apply_transcription_progress(
+        self,
+        item_id: str,
+        processed_seconds: float,
+        total_seconds: float | None,
+        started_at: float,
+        file_name: str,
+    ) -> None:
+        item = self._find_history_item(item_id)
+        if item is None:
+            return
+
+        if total_seconds and total_seconds > 0:
+            fraction = min(max(processed_seconds / total_seconds, 0.0), 1.0)
+            item.progress_fraction = fraction
+
+            elapsed = max(time.time() - started_at, 0.0)
+            if fraction > 0.02:
+                item.eta_seconds = max(elapsed * (1.0 - fraction) / fraction, 0.0)
+            else:
+                item.eta_seconds = None
+
+            self._set_status(self.t("status_transcription_progress", percent=fraction * 100.0, name=file_name))
+        else:
+            item.progress_fraction = None
+            item.eta_seconds = None
+
+        self._refresh_history_view()
+
+    def _finish_history_item_success(
+        self,
+        item_id: str,
+        transcript_path: str,
+        text: str,
+        model_id: str,
+        language: str,
+        segments: list[dict[str, Any]],
+    ) -> None:
+        item = self._find_history_item(item_id)
+        if item is None:
+            return
+
+        item.state = "completed"
+        item.created_at = datetime.now(timezone.utc).isoformat()
+        item.transcript_path = transcript_path
+        item.detected_language = language
+        item.model_id = model_id
+        item.error_message = None
+        item.progress_fraction = 1.0
+        item.eta_seconds = None
+        item.is_runtime_only = False
+
+        self.selected_history_item_id = item.id
+        self.current_editor_source_path = item.source_file_path
+        self.last_model_id = model_id
+        self.detected_language = language or "-"
+        self.detected_language_var.set(self.detected_language)
+        self.last_segments = segments
+        self.text.delete("1.0", tk.END)
+        self.text.insert("1.0", text)
+
+        self._set_status(self.t("status_transcription_completed_file", name=item.source_file_name))
+        self._persist_history_to_disk()
+        self._refresh_history_view()
+
+    def _finish_history_item_failure(self, item_id: str, error_message: str) -> None:
+        item = self._find_history_item(item_id)
+        if item is None:
+            return
+
+        item.state = "failed"
+        item.error_message = error_message
+        item.progress_fraction = None
+        item.eta_seconds = None
+        item.is_runtime_only = False
+
+        self._set_status(error_message)
+        self._persist_history_to_disk()
+        self._refresh_history_view()
+
+    def _claim_next_queued_item(self) -> TranscriptHistoryItem | None:
+        for item in self.history_items:
+            if item.state == "queued":
+                item.state = "processing"
+                item.progress_fraction = None
+                item.eta_seconds = None
+                item.error_message = None
+                item.is_runtime_only = True
+                return item
+        return None
+
+    def _extract_audio_with_ffmpeg(self, source: Path) -> Path:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise RuntimeError(self.t("error_ffmpeg_required"))
+
+        fd, output_path = tempfile.mkstemp(prefix="gzwhisper-audio-", suffix=".m4a")
+        os.close(fd)
+        output = Path(output_path)
+
+        result = subprocess.run(
+            [ffmpeg, "-y", "-i", str(source), "-vn", "-acodec", "aac", str(output)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout).strip()
+            try:
+                output.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError(self.t("error_extract_audio", details=details))
+
+        return output
+
+    def choose_file(self) -> None:
+        if self.is_busy:
+            return
+
+        paths = filedialog.askopenfilenames(title=self.t("dialog_choose_media"), filetypes=self._filetypes_media())
+        if not paths:
+            return
+
+        self._add_media_files([Path(path) for path in paths])
+
+    def open_history_item(self, item_id: str) -> None:
+        item = self._find_history_item(item_id)
+        if item is None:
+            return
+
+        if item.state != "completed":
+            return
+
+        if not item.transcript_path:
+            self._set_status(self.t("status_no_transcript_file"))
+            return
+
+        transcript_file = Path(item.transcript_path)
+        if not transcript_file.exists():
+            self._set_status(self.t("status_file_missing", name=item.source_file_name))
+            return
+
+        text = transcript_file.read_text(encoding="utf-8")
+        self.text.delete("1.0", tk.END)
+        self.text.insert("1.0", text)
+        self.current_editor_source_path = item.source_file_path
+        self.last_model_id = item.model_id
+        self.detected_language = item.detected_language or "-"
+        self.detected_language_var.set(self.detected_language)
+        self.last_segments = []
+        self._set_status(self.t("status_history_loaded", name=item.source_file_name))
+
+    def open_selected_transcript(self) -> None:
+        item = self._selected_history_item()
+        if item is None or not item.transcript_path:
+            self._set_status(self.t("status_no_transcript_file"))
+            return
+
+        transcript_file = Path(item.transcript_path)
+        if not transcript_file.exists():
+            self._set_status(self.t("status_no_transcript_file"))
+            return
+
+        if IS_WINDOWS:
+            subprocess.Popen(["explorer", str(transcript_file.parent)])
+            return
+
+        opener = shutil.which("xdg-open")
+        if not opener:
+            messagebox.showinfo(APP_NAME, self.t("dialog_open_manual", path=transcript_file))
+            return
+
+        subprocess.Popen([opener, str(transcript_file.parent)])
+
+    def delete_selected_history_item(self) -> None:
+        item = self._selected_history_item()
+        if item is None:
+            return
+
+        if item.state == "processing":
+            self._set_status(self.t("status_history_delete_blocked"))
+            return
+
+        if item.transcript_path:
+            try:
+                Path(item.transcript_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        self.history_items = [candidate for candidate in self.history_items if candidate.id != item.id]
+        if self.selected_history_item_id == item.id:
+            self.selected_history_item_id = None
+            self.current_editor_source_path = None
+            self.text.delete("1.0", tk.END)
+            self.last_segments = []
+            self.last_model_id = None
+            self.detected_language = "-"
+            self.detected_language_var.set(self.detected_language)
+
+        self._set_status(self.t("status_history_deleted", name=item.source_file_name))
+        self._persist_history_to_disk()
+        self._refresh_history_view()
+
+    def transcribe_all_queued_files(self) -> None:
+        if self.is_busy:
+            return
+
+        if not self.current_model:
+            messagebox.showerror(APP_NAME, self.t("error_connect_model_first"))
+            return
+
+        if self._queue_count() == 0:
+            self._set_status(self.t("status_queue_empty"))
+            return
+
+        language_display = self.language_var.get()
+        language_code = self.language_display_to_code.get(language_display, "auto")
+
+        def task() -> None:
+            self._post_ui(self._set_status, self.t("status_preparing_runtime"))
+            self._prepare_runtime(lambda message: self._post_ui(self._set_status, message))
+
+            while True:
+                model_reference = self.current_model
+                if model_reference is None:
+                    break
+
+                item = self._claim_next_queued_item()
+                if item is None:
+                    break
+
+                self._post_ui(self._refresh_history_view)
+                self._post_ui(self._set_status, self.t("status_transcribing_file", name=item.source_file_name))
+
+                source_file = Path(item.source_file_path)
+                if not source_file.exists():
+                    self._post_ui(self._finish_history_item_failure, item.id, self.t("status_file_missing", name=item.source_file_name))
+                    continue
+
+                prepared_path = source_file
+                should_cleanup = False
+                started_at = time.time()
+                final_payload: dict[str, Any] | None = None
+
+                try:
+                    if source_file.suffix.lower() in VIDEO_EXTENSIONS:
+                        self._post_ui(self._set_status, self.t("status_extracting_audio"))
+                        prepared_path = self._extract_audio_with_ffmpeg(source_file)
+                        should_cleanup = True
+
+                    args = [
+                        "transcribe",
+                        "--model-path",
+                        model_reference.model_path,
+                        "--model-id",
+                        model_reference.model_id,
+                        "--input",
+                        str(prepared_path),
+                    ]
+                    if language_code != "auto":
+                        args.extend(["--language", language_code])
+
+                    def on_payload(payload: dict[str, Any]) -> None:
+                        nonlocal final_payload
+                        if "ok" in payload:
+                            final_payload = payload
+                            return
+
+                        if payload.get("event") == "progress":
+                            processed_raw = payload.get("processed_seconds")
+                            total_raw = payload.get("total_seconds")
+                            try:
+                                processed = float(processed_raw) if processed_raw is not None else 0.0
+                            except Exception:
+                                processed = 0.0
+                            try:
+                                total = float(total_raw) if total_raw is not None else None
+                            except Exception:
+                                total = None
+                            self._post_ui(
+                                self._apply_transcription_progress,
+                                item.id,
+                                processed,
+                                total,
+                                started_at,
+                                item.source_file_name,
+                            )
+
+                    exit_code, stderr_output = self._run_worker_streaming(args, on_payload)
+                    if exit_code != 0 or not final_payload or not bool(final_payload.get("ok")):
+                        details = ""
+                        if final_payload and final_payload.get("details"):
+                            details = str(final_payload.get("details"))
+                        message = (
+                            str(final_payload.get("error") if final_payload else "")
+                            or stderr_output.strip()
+                            or self.t("error_transcription_failed")
+                        )
+                        raise RuntimeError(f"{message}\n{details}".strip())
+
+                    text = str(final_payload.get("text") or "")
+                    model_id = str(final_payload.get("model_id") or model_reference.model_id)
+                    language = str(final_payload.get("language") or "-")
+                    raw_segments = final_payload.get("segments")
+                    segments: list[dict[str, Any]] = raw_segments if isinstance(raw_segments, list) else []
+                    transcript_path = self._save_transcript_file(source_file, text)
+
+                    self._post_ui(
+                        self._finish_history_item_success,
+                        item.id,
+                        str(transcript_path),
+                        text,
+                        model_id,
+                        language,
+                        segments,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self._post_ui(self._finish_history_item_failure, item.id, str(exc))
+                finally:
+                    if should_cleanup:
+                        try:
+                            prepared_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+
+            self._post_ui(self._set_status, self.t("status_queue_completed"))
+
+        self._run_in_background(task)
+
     def download_model(self) -> None:
         if self.is_busy:
             return
@@ -778,7 +1579,10 @@ class GZWhisperLinuxApp(tk.Tk):
                     event = payload.get("event")
                     if event == "source":
                         repo_id = str(payload.get("repo_id", ""))
-                        self._post_ui(self.download_source_var.set, self.t("status_download_source", source=f"https://huggingface.co/{repo_id}"))
+                        self._post_ui(
+                            self.download_source_var.set,
+                            self.t("status_download_source", source=f"https://huggingface.co/{repo_id}"),
+                        )
                     elif event == "progress":
                         downloaded = int(payload.get("downloaded_bytes") or 0)
                         total_raw = payload.get("total_bytes")
@@ -804,9 +1608,12 @@ class GZWhisperLinuxApp(tk.Tk):
                     details = ""
                     if final_payload and final_payload.get("details"):
                         details = str(final_payload.get("details"))
-                    message = str(final_payload.get("error") if final_payload else "") or stderr_output.strip() or self.t("error_model_download_failed")
-                    full_error = f"{message}\n{details}".strip()
-                    raise RuntimeError(full_error)
+                    message = (
+                        str(final_payload.get("error") if final_payload else "")
+                        or stderr_output.strip()
+                        or self.t("error_model_download_failed")
+                    )
+                    raise RuntimeError(f"{message}\n{details}".strip())
 
                 reference = LocalModelReference(
                     model_id=str(final_payload.get("model_id") or "unknown"),
@@ -846,9 +1653,12 @@ class GZWhisperLinuxApp(tk.Tk):
             result, payload = self._run_worker(["validate-model", "--model-path", model_path])
             if result.returncode != 0 or not payload or not bool(payload.get("ok")):
                 details = str(payload.get("details") if payload else "")
-                message = str(payload.get("error") if payload else "") or (result.stderr or result.stdout).strip() or self.t("error_validate_model_failed")
-                full_error = f"{message}\n{details}".strip()
-                raise RuntimeError(full_error)
+                message = (
+                    str(payload.get("error") if payload else "")
+                    or (result.stderr or result.stdout).strip()
+                    or self.t("error_validate_model_failed")
+                )
+                raise RuntimeError(f"{message}\n{details}".strip())
 
             reference = LocalModelReference(
                 model_id=str(payload.get("model_id") or Path(model_path).name),
@@ -872,6 +1682,10 @@ class GZWhisperLinuxApp(tk.Tk):
             messagebox.showerror(APP_NAME, self.t("error_model_path_not_exists"))
             return
 
+        if IS_WINDOWS:
+            subprocess.Popen(["explorer", str(model_path)])
+            return
+
         opener = shutil.which("xdg-open")
         if not opener:
             messagebox.showinfo(APP_NAME, self.t("dialog_open_manual", path=model_path))
@@ -885,11 +1699,7 @@ class GZWhisperLinuxApp(tk.Tk):
 
         reference = self.current_model
 
-        if reference.source_type == "downloaded":
-            prompt = self.t("dialog_delete_downloaded")
-        else:
-            prompt = self.t("dialog_delete_linked")
-
+        prompt = self.t("dialog_delete_downloaded") if reference.source_type == "downloaded" else self.t("dialog_delete_linked")
         if not messagebox.askyesno(APP_NAME, prompt):
             return
 
@@ -906,127 +1716,6 @@ class GZWhisperLinuxApp(tk.Tk):
             self._set_status(self.t("status_model_removed"))
         except Exception as exc:  # noqa: BLE001
             self._show_error(str(exc))
-
-    def choose_file(self) -> None:
-        if self.is_busy:
-            return
-
-        file_path = filedialog.askopenfilename(title=self.t("dialog_choose_media"), filetypes=self._filetypes_media())
-        if not file_path:
-            return
-
-        self.selected_file = Path(file_path)
-        self.file_var.set(str(self.selected_file))
-        self._set_status(self.t("status_selected_file", name=self.selected_file.name))
-        self._refresh_controls()
-
-    def _extract_audio_with_ffmpeg(self, source: Path) -> Path:
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            raise RuntimeError(self.t("error_ffmpeg_required"))
-
-        fd, output_path = tempfile.mkstemp(prefix="gzwhisper-audio-", suffix=".m4a")
-        os.close(fd)
-        output = Path(output_path)
-
-        result = subprocess.run(
-            [ffmpeg, "-y", "-i", str(source), "-vn", "-acodec", "aac", str(output)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            details = (result.stderr or result.stdout).strip()
-            try:
-                output.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise RuntimeError(self.t("error_extract_audio", details=details))
-
-        return output
-
-    def transcribe_selected_file(self) -> None:
-        if self.is_busy:
-            return
-
-        if not self.selected_file:
-            messagebox.showerror(APP_NAME, self.t("error_select_media_first"))
-            return
-
-        if not self.current_model:
-            messagebox.showerror(APP_NAME, self.t("error_connect_model_first"))
-            return
-
-        language_display = self.language_var.get()
-        language_code = self.language_display_to_code.get(language_display, "auto")
-
-        source_file = self.selected_file
-        model_reference = self.current_model
-
-        def task() -> None:
-            self._post_ui(self._set_status, self.t("status_preparing_runtime"))
-            self._prepare_runtime(lambda message: self._post_ui(self._set_status, message))
-
-            prepared_path = source_file
-            should_cleanup = False
-
-            try:
-                if source_file.suffix.lower() in VIDEO_EXTENSIONS:
-                    self._post_ui(self._set_status, self.t("status_extracting_audio"))
-                    prepared_path = self._extract_audio_with_ffmpeg(source_file)
-                    should_cleanup = True
-
-                self._post_ui(self._set_status, self.t("status_running_transcription"))
-
-                args = [
-                    "transcribe",
-                    "--model-path",
-                    model_reference.model_path,
-                    "--model-id",
-                    model_reference.model_id,
-                    "--input",
-                    str(prepared_path),
-                ]
-                if language_code != "auto":
-                    args.extend(["--language", language_code])
-
-                result, payload = self._run_worker(args)
-                if result.returncode != 0 or not payload or not bool(payload.get("ok")):
-                    details = str(payload.get("details") if payload else "")
-                    message = str(payload.get("error") if payload else "") or (result.stderr or result.stdout).strip() or self.t("error_transcription_failed")
-                    full_error = f"{message}\n{details}".strip()
-                    raise RuntimeError(full_error)
-
-                text = str(payload.get("text") or "")
-                model_id = str(payload.get("model_id") or model_reference.model_id)
-                language = str(payload.get("language") or "-")
-                raw_segments = payload.get("segments")
-                segments: list[dict[str, Any]] = raw_segments if isinstance(raw_segments, list) else []
-
-                self._post_ui(self._apply_transcription_result, text, model_id, language, segments)
-                self._post_ui(self._set_status, self.t("status_transcription_completed"))
-            finally:
-                if should_cleanup:
-                    try:
-                        prepared_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-
-        self._run_in_background(task)
-
-    def _apply_transcription_result(
-        self,
-        text: str,
-        model_id: str,
-        language: str,
-        segments: list[dict[str, Any]],
-    ) -> None:
-        self.text.delete("1.0", tk.END)
-        self.text.insert("1.0", text)
-        self.last_model_id = model_id
-        self.detected_language = language or "-"
-        self.detected_language_var.set(self.detected_language)
-        self.last_segments = segments
-        self._refresh_controls()
 
     def copy_all_text(self) -> None:
         value = self.text.get("1.0", tk.END).strip()
@@ -1075,8 +1764,8 @@ class GZWhisperLinuxApp(tk.Tk):
             "segments": self.last_segments,
         }
 
-        if self.selected_file:
-            payload["source_file"] = str(self.selected_file)
+        if self.current_editor_source_path:
+            payload["source_file"] = self.current_editor_source_path
 
         if self.last_model_id:
             payload["model_id"] = self.last_model_id
@@ -1095,4 +1784,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--worker-relay":
+        raise SystemExit(run_worker_relay(sys.argv[2:]))
     raise SystemExit(main())

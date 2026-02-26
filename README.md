@@ -2,9 +2,10 @@
 
 GZWhisper is a local-first speech-to-text app for audio and video files.
 
-This repository includes two desktop apps:
+This repository includes desktop apps for three platforms:
 - `macOS` app (SwiftUI): `Sources/`
 - `Linux` app (Python + Tkinter): `linux/gzwhisper_linux.py`
+- `Windows` app (portable `.exe`, built from Python + Tkinter): `linux/gzwhisper_linux.py`
 
 After the model is downloaded, transcription runs on the user's machine.
 
@@ -87,6 +88,35 @@ If the command is not in `PATH`, run:
 
 Output: `build/GZWhisper-linux.tar.gz`
 
+## Quick Start (Windows Portable)
+
+Run the portable executable:
+
+```powershell
+GZWhisper.exe
+```
+
+Notes:
+- No installer is required.
+- For video transcription, place `ffmpeg.exe` next to `GZWhisper.exe` or add it to `PATH`.
+- See the full Windows user guide: [`docs/WINDOWS_PORTABLE.md`](docs/WINDOWS_PORTABLE.md)
+
+### Build Windows portable package (on Windows host)
+
+```powershell
+.\scripts\package_windows_portable.ps1
+```
+
+Or:
+
+```cmd
+scripts\package_windows_portable.cmd
+```
+
+Output:
+- `build/GZWhisper-windows-portable/`
+- `build/GZWhisper-windows-portable.zip`
+
 ## Maintainer: Build Release DMG (macOS)
 
 This section is for maintainers preparing release artifacts.
@@ -141,7 +171,7 @@ Output: `build/GZWhisper-macOS.zip`
 
 Output: `build/GZWhisper-Installer.dmg`
 
-## First run (both platforms)
+## First run (all platforms)
 
 1. Open the app.
 2. Click **Download model** (or connect an existing local model folder).
@@ -154,6 +184,7 @@ Output: `build/GZWhisper-Installer.dmg`
 - Internet is needed for first-time model download (and for dependency install only if no wheelhouse is bundled).
 - Once the model is local, transcription can run offline.
 - Linux video transcription requires `ffmpeg`.
+- Windows video transcription requires `ffmpeg.exe` (next to app or in `PATH`).
 
 ## Project layout
 
@@ -173,6 +204,9 @@ Output: `build/GZWhisper-Installer.dmg`
 - Added `scripts/prepare_embedded_python.sh` and updated `scripts/build_app.sh` for Apple Silicon (`arm64`) packaging with embedded Python assets.
 - Expanded localized strings (EN/RU/ZH) for history, queue, progress, and runtime diagnostics.
 - Updated Linux subtitle text to match desktop positioning and refreshed `.gitignore` for embedded runtime artifacts.
+- Synced Linux app to queue/history workflow with persisted transcript history and streaming progress/ETA.
+- Added Windows portable build scripts: `scripts/package_windows_portable.ps1` and `scripts/package_windows_portable.cmd`.
+- Added frozen worker relay mode (`--worker-relay`) to support single portable executable runtime without system Python.
 
 ## License
 
