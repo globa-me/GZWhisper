@@ -12,6 +12,8 @@ FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
+APP_VERSION="${APP_VERSION:-1.2}"
+APP_BUILD="${APP_BUILD:-4}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 APP_BIN="$BUILD_DIR/${APP_NAME}-arm64"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
@@ -33,6 +35,8 @@ swiftc \
   -framework SwiftUI \
   -framework AppKit \
   -framework AVFoundation \
+  -framework ScreenCaptureKit \
+  -framework CoreMedia \
   -framework UniformTypeIdentifiers
 
 mv "$APP_BIN" "$MACOS_DIR/$APP_NAME"
@@ -104,13 +108,15 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>${APP_BUILD}</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>
     <string>${MIN_MACOS_VERSION}</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>GZWhisper needs microphone access to record audio.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

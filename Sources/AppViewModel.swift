@@ -20,9 +20,11 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     var sourceFilePath: String
     var createdAt: Date
     var mediaDurationSeconds: Double?
+    var audioPath: String?
     var transcriptPath: String?
     var detectedLanguage: String?
     var modelID: String?
+    var recordingMode: RecordingInputMode?
     var state: TranscriptJobState
     var errorMessage: String?
     var progressFraction: Double? = nil
@@ -35,9 +37,11 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         sourceFilePath: String,
         createdAt: Date,
         mediaDurationSeconds: Double?,
+        audioPath: String? = nil,
         transcriptPath: String? = nil,
         detectedLanguage: String? = nil,
         modelID: String? = nil,
+        recordingMode: RecordingInputMode? = nil,
         state: TranscriptJobState,
         errorMessage: String? = nil,
         progressFraction: Double? = nil,
@@ -49,9 +53,11 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         self.sourceFilePath = sourceFilePath
         self.createdAt = createdAt
         self.mediaDurationSeconds = mediaDurationSeconds
+        self.audioPath = audioPath
         self.transcriptPath = transcriptPath
         self.detectedLanguage = detectedLanguage
         self.modelID = modelID
+        self.recordingMode = recordingMode
         self.state = state
         self.errorMessage = errorMessage
         self.progressFraction = progressFraction
@@ -65,11 +71,21 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         case sourceFilePath
         case createdAt
         case mediaDurationSeconds
+        case audioPath
         case transcriptPath
         case detectedLanguage
         case modelID
+        case recordingMode
         case state
         case errorMessage
+    }
+
+    var hasTranscript: Bool {
+        transcriptPath != nil
+    }
+
+    var hasAudio: Bool {
+        audioPath != nil
     }
 }
 
@@ -100,11 +116,18 @@ final class AppViewModel: ObservableObject {
     @Published var activeProgressFraction: Double?
     @Published var activeETA: String = ""
     @Published var currentTranscribingFileName: String = ""
+    @Published var selectedRecordingMode: RecordingInputMode = .systemAndMicrophone
+    @Published var isRecording = false
+    @Published var isRecordingPaused = false
+    @Published var isStoppingRecording = false
+    @Published var recordingElapsedText = "00:00:00"
 
     let languageOptions = L10n.transcriptionLanguageOptions
-    let appVersionLabel = "1.1"
+    let appVersionLabel = "1.2"
+    let recordingModeOptions = RecordingInputMode.allCases
 
     private let engine = WhisperEngine.shared
+    private let audioCaptureService = AudioCaptureService()
     private let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB, .useGB]
@@ -125,13 +148,17 @@ final class AppViewModel: ObservableObject {
     private var lastModelID: String?
     private var currentModelReference: LocalModelReference?
     private var currentEditorSourcePath: String?
+    private var recordingStartedAt: Date?
+    private var recordingPausedAt: Date?
+    private var recordingPausedTotalSeconds: Double = 0
+    private var recordingTimer: Timer?
 
     var canStartQueue: Bool {
-        !isDownloadingModel && !isTranscribing && hasConnectedModel && hasQueuedItems && runtimeIssueMessage == nil
+        !isDownloadingModel && !isTranscribing && !isRecording && !isStoppingRecording && hasConnectedModel && hasQueuedItems && runtimeIssueMessage == nil
     }
 
     var canDeleteModel: Bool {
-        hasConnectedModel && !isDownloadingModel && !isTranscribing
+        hasConnectedModel && !isDownloadingModel && !isTranscribing && !isRecording
     }
 
     var shouldShowDownloadProgress: Bool {
@@ -166,6 +193,26 @@ final class AppViewModel: ObservableObject {
         historyItems.first(where: { $0.state == .processing })
     }
 
+    var canStartRecording: Bool {
+        !isRecording && !isStoppingRecording && !isTranscribing && !isDownloadingModel
+    }
+
+    var canStopRecording: Bool {
+        isRecording && !isStoppingRecording
+    }
+
+    var canPauseRecording: Bool {
+        isRecording && !isRecordingPaused && !isStoppingRecording
+    }
+
+    var canResumeRecording: Bool {
+        isRecording && isRecordingPaused && !isStoppingRecording
+    }
+
+    deinit {
+        recordingTimer?.invalidate()
+    }
+
     func initialize() {
         refreshModelStatus()
         refreshRuntimeIssue()
@@ -177,6 +224,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func chooseFiles() {
+        guard !isRecording else {
+            statusMessage = L10n.t("record.status.stopFirst")
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -190,6 +242,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
+        if isRecording {
+            statusMessage = L10n.t("record.status.stopFirst")
+            return false
+        }
+
         guard !providers.isEmpty else {
             return false
         }
@@ -354,8 +411,154 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func recordingModeTitle(_ mode: RecordingInputMode) -> String {
+        switch mode {
+        case .systemAndMicrophone:
+            return L10n.t("record.mode.systemMic")
+        case .microphoneOnly:
+            return L10n.t("record.mode.mic")
+        case .systemOnly:
+            return L10n.t("record.mode.system")
+        }
+    }
+
+    func recordingModeShortTitle(_ mode: RecordingInputMode) -> String {
+        switch mode {
+        case .systemAndMicrophone:
+            return L10n.t("record.mode.short.systemMic")
+        case .microphoneOnly:
+            return L10n.t("record.mode.short.mic")
+        case .systemOnly:
+            return L10n.t("record.mode.short.system")
+        }
+    }
+
+    func startRecording() {
+        guard canStartRecording else {
+            return
+        }
+
+        let mode = selectedRecordingMode
+        let startedAt = Date()
+        let destinationURL = Self.makeRecordingFileURL(
+            createdAt: startedAt,
+            mode: mode,
+            in: transcriptsDirectoryURL
+        )
+
+        statusMessage = L10n.t("record.status.starting")
+
+        Task {
+            do {
+                try FileManager.default.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
+                try await audioCaptureService.start(mode: mode, destinationURL: destinationURL)
+
+                recordingStartedAt = startedAt
+                recordingPausedAt = nil
+                recordingPausedTotalSeconds = 0
+                isRecording = true
+                isRecordingPaused = false
+                isStoppingRecording = false
+                recordingElapsedText = "00:00:00"
+                startRecordingTimer()
+                statusMessage = L10n.t("record.status.recording")
+            } catch {
+                isRecording = false
+                isRecordingPaused = false
+                isStoppingRecording = false
+                recordingStartedAt = nil
+                recordingPausedAt = nil
+                recordingPausedTotalSeconds = 0
+                recordingElapsedText = "00:00:00"
+                stopRecordingTimer()
+                statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func pauseRecording() {
+        guard canPauseRecording else {
+            return
+        }
+
+        do {
+            try audioCaptureService.pause()
+            isRecordingPaused = true
+            recordingPausedAt = Date()
+            statusMessage = L10n.t("record.status.paused")
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func resumeRecording() {
+        guard canResumeRecording else {
+            return
+        }
+
+        do {
+            try audioCaptureService.resume()
+            if let recordingPausedAt {
+                recordingPausedTotalSeconds += max(Date().timeIntervalSince(recordingPausedAt), 0)
+            }
+            self.recordingPausedAt = nil
+            isRecordingPaused = false
+            statusMessage = L10n.t("record.status.recording")
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func stopRecording() {
+        guard canStopRecording else {
+            return
+        }
+
+        statusMessage = L10n.t("record.status.stopping")
+        let wasPaused = isRecordingPaused
+        let pausedAt = recordingPausedAt
+
+        isStoppingRecording = true
+        isRecordingPaused = false
+        recordingPausedAt = nil
+        stopRecordingTimer()
+
+        Task {
+            do {
+                if wasPaused, let pausedAt {
+                    recordingPausedTotalSeconds += max(Date().timeIntervalSince(pausedAt), 0)
+                }
+
+                let result = try await audioCaptureService.stop()
+                addRecordingToHistory(result)
+                statusMessage = L10n.f("record.status.saved", result.audioURL.lastPathComponent)
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+
+            isRecording = false
+            isStoppingRecording = false
+            recordingStartedAt = nil
+            recordingPausedAt = nil
+            recordingPausedTotalSeconds = 0
+            recordingElapsedText = "00:00:00"
+        }
+    }
+
+    func toggleRecordingPause() {
+        if isRecordingPaused {
+            resumeRecording()
+        } else {
+            pauseRecording()
+        }
+    }
+
     func transcribeAllQueuedFiles() {
         guard ensureRuntimeReady() else { return }
+        guard !isRecording else {
+            statusMessage = L10n.t("record.status.stopFirst")
+            return
+        }
 
         guard hasConnectedModel else {
             statusMessage = L10n.t("status.connectModelFirst")
@@ -373,6 +576,51 @@ final class AppViewModel: ObservableObject {
         processNextQueuedItem()
     }
 
+    func queueHistoryItemForTranscription(_ id: UUID) {
+        guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        guard historyItems[index].state != .processing else {
+            return
+        }
+
+        let fileExists = FileManager.default.fileExists(atPath: historyItems[index].sourceFilePath)
+        guard fileExists else {
+            historyItems[index].state = .failed
+            historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].sourceFileName)
+            persistHistoryToDisk()
+            statusMessage = historyItems[index].errorMessage ?? L10n.t("status.failed")
+            return
+        }
+
+        historyItems[index].state = .queued
+        historyItems[index].errorMessage = nil
+        historyItems[index].progressFraction = nil
+        historyItems[index].etaSeconds = nil
+        selectedHistoryItemID = id
+        statusMessage = L10n.f("status.fileSelected", historyItems[index].sourceFileName)
+        sortHistoryByDateDesc()
+        persistHistoryToDisk()
+
+        if hasConnectedModel, !isTranscribing {
+            transcribeAllQueuedFiles()
+        }
+    }
+
+    func canQueueHistoryItem(_ item: TranscriptHistoryItem) -> Bool {
+        if item.state == .processing {
+            return false
+        }
+        if item.state == .queued {
+            return false
+        }
+        if item.state == .completed, item.transcriptPath != nil {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: item.sourceFilePath)
+    }
+
     func openHistoryItem(_ id: UUID) {
         guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
             return
@@ -386,6 +634,9 @@ final class AppViewModel: ObservableObject {
         }
 
         guard let transcriptPath = item.transcriptPath else {
+            transcriptText = ""
+            segments = []
+            currentEditorSourcePath = item.sourceFilePath
             statusMessage = L10n.t("status.noTranscriptFile")
             return
         }
@@ -413,6 +664,15 @@ final class AppViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: transcriptPath)])
     }
 
+    func revealAudioInFinder(_ id: UUID) {
+        guard let item = historyItems.first(where: { $0.id == id }), let audioPath = item.audioPath else {
+            statusMessage = L10n.t("record.status.noAudioFile")
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: audioPath)])
+    }
+
     func deleteHistoryItem(_ id: UUID) {
         guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
             return
@@ -426,6 +686,9 @@ final class AppViewModel: ObservableObject {
 
         if let transcriptPath = item.transcriptPath {
             try? FileManager.default.removeItem(at: URL(fileURLWithPath: transcriptPath))
+        }
+        if let audioPath = item.audioPath {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: audioPath))
         }
 
         historyItems.remove(at: index)
@@ -530,7 +793,36 @@ final class AppViewModel: ObservableObject {
     func historyMetaText(for item: TranscriptHistoryItem) -> String {
         let datePart = historyDateFormatter.string(from: item.createdAt)
         let durationPart = formattedDuration(item.mediaDurationSeconds)
+        if let recordingMode = item.recordingMode {
+            return "\(datePart) • \(durationPart) • \(recordingModeShortTitle(recordingMode))"
+        }
         return "\(datePart) • \(durationPart)"
+    }
+
+    func historyBadgeText(for item: TranscriptHistoryItem) -> String? {
+        if item.hasTranscript && item.hasAudio {
+            return "t+a"
+        }
+        if item.hasTranscript {
+            return "t"
+        }
+        if item.hasAudio {
+            return "a"
+        }
+        return nil
+    }
+
+    func historyBadgeHelp(for item: TranscriptHistoryItem) -> String? {
+        if item.hasTranscript && item.hasAudio {
+            return L10n.t("help.badgeTranscriptAudio")
+        }
+        if item.hasTranscript {
+            return L10n.t("help.badgeTranscript")
+        }
+        if item.hasAudio {
+            return L10n.t("help.badgeAudio")
+        }
+        return nil
     }
 
     func etaText(for item: TranscriptHistoryItem) -> String {
@@ -555,6 +847,14 @@ final class AppViewModel: ObservableObject {
         let languageCode = selectedLanguage
         let startedAt = Date()
         let transcriptsDirectoryURL = self.transcriptsDirectoryURL
+
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            historyItems[index].state = .failed
+            historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].sourceFileName)
+            persistHistoryToDisk()
+            processNextQueuedItem()
+            return
+        }
 
         historyItems[index].state = .processing
         historyItems[index].progressFraction = nil
@@ -799,6 +1099,25 @@ final class AppViewModel: ObservableObject {
         return directoryURL.appendingPathComponent(fileName)
     }
 
+    nonisolated private static func makeRecordingFileURL(
+        createdAt: Date,
+        mode: RecordingInputMode,
+        in directoryURL: URL
+    ) -> URL {
+        let timestamp = Int(createdAt.timeIntervalSince1970)
+        let modeToken: String
+        switch mode {
+        case .systemAndMicrophone:
+            modeToken = "system-mic"
+        case .microphoneOnly:
+            modeToken = "mic"
+        case .systemOnly:
+            modeToken = "system"
+        }
+        let fileName = "recording-\(modeToken)-\(timestamp).m4a"
+        return directoryURL.appendingPathComponent(fileName)
+    }
+
     nonisolated private static func sanitizeFileName(_ name: String) -> String {
         let invalid = CharacterSet(charactersIn: "\\/:*?\"<>|")
         let components = name.components(separatedBy: invalid)
@@ -823,8 +1142,13 @@ final class AppViewModel: ObservableObject {
             copy.etaSeconds = nil
             copy.isRuntimeOnly = false
             if !copy.state.isTerminal {
-                copy.state = .failed
-                copy.errorMessage = L10n.t("status.failed")
+                if copy.audioPath != nil {
+                    copy.state = .queued
+                    copy.errorMessage = nil
+                } else {
+                    copy.state = .failed
+                    copy.errorMessage = L10n.t("status.failed")
+                }
             }
             return copy
         }
@@ -834,15 +1158,20 @@ final class AppViewModel: ObservableObject {
 
     private func persistHistoryToDisk() {
         let persisted = historyItems.compactMap { item -> TranscriptHistoryItem? in
-            guard item.state == .completed || item.state == .failed else {
+            let hasArtifact = item.transcriptPath != nil || item.audioPath != nil
+            if !hasArtifact && item.state != .failed {
                 return nil
             }
 
-            if item.state == .completed && item.transcriptPath == nil {
+            if item.state == .completed && item.transcriptPath == nil && item.audioPath == nil {
                 return nil
             }
 
             var copy = item
+            if copy.state == .processing {
+                copy.state = .queued
+                copy.errorMessage = nil
+            }
             copy.progressFraction = nil
             copy.etaSeconds = nil
             copy.isRuntimeOnly = false
@@ -860,6 +1189,52 @@ final class AppViewModel: ObservableObject {
 
     private func sortHistoryByDateDesc() {
         historyItems.sort { $0.createdAt > $1.createdAt }
+    }
+
+    private func addRecordingToHistory(_ result: AudioCaptureService.CaptureResult) {
+        let item = TranscriptHistoryItem(
+            sourceFileName: result.audioURL.lastPathComponent,
+            sourceFilePath: result.audioURL.path,
+            createdAt: Date(),
+            mediaDurationSeconds: result.durationSeconds,
+            audioPath: result.audioURL.path,
+            recordingMode: result.mode,
+            state: .queued,
+            isRuntimeOnly: false
+        )
+        historyItems.insert(item, at: 0)
+        selectedHistoryItemID = item.id
+        sortHistoryByDateDesc()
+        persistHistoryToDisk()
+    }
+
+    private func startRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateRecordingElapsed()
+            }
+        }
+        updateRecordingElapsed()
+    }
+
+    private func stopRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+    }
+
+    private func updateRecordingElapsed() {
+        guard let recordingStartedAt else {
+            recordingElapsedText = "00:00:00"
+            return
+        }
+
+        var paused = recordingPausedTotalSeconds
+        if isRecordingPaused, let recordingPausedAt {
+            paused += max(Date().timeIntervalSince(recordingPausedAt), 0)
+        }
+        let elapsed = max(Date().timeIntervalSince(recordingStartedAt) - paused, 0)
+        recordingElapsedText = formattedClock(elapsed)
     }
 
     private func startModelDownload(to destinationURL: URL) {

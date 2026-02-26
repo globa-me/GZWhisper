@@ -281,7 +281,7 @@ struct ContentView: View {
                     Label(L10n.t("button.addMedia"), systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
-                .disabled(viewModel.isDownloadingModel)
+                .disabled(viewModel.isDownloadingModel || viewModel.isRecording)
 
                 Text(viewModel.queueSummaryText)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -313,25 +313,47 @@ struct ContentView: View {
                 statusPill(title: L10n.t("label.detectedLanguage"), value: viewModel.detectedLanguage)
 
                 Spacer(minLength: 8)
+            }
 
-                if viewModel.isTranscribing {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
+            HStack(spacing: 10) {
+                Text(L10n.t("label.recordMode"))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
 
-                        if let fraction = viewModel.activeProgressFraction {
-                            Text(String(format: "%.0f%%", fraction * 100))
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if !viewModel.activeETA.isEmpty {
-                            Text(L10n.f("status.eta", viewModel.activeETA))
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
+                Picker("", selection: $viewModel.selectedRecordingMode) {
+                    ForEach(viewModel.recordingModeOptions) { mode in
+                        Text(viewModel.recordingModeTitle(mode)).tag(mode)
                     }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 220)
+                .disabled(viewModel.isRecording)
+
+                Button(action: viewModel.isRecording ? viewModel.stopRecording : viewModel.startRecording) {
+                    Label(
+                        viewModel.isRecording ? L10n.t("button.stopRecording") : L10n.t("button.startRecording"),
+                        systemImage: viewModel.isRecording ? "stop.fill" : "record.circle"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(viewModel.isRecording ? .red : Color(red: 0.75, green: 0.10, blue: 0.14))
+                .disabled(viewModel.isRecording ? !viewModel.canStopRecording : !viewModel.canStartRecording)
+
+                if viewModel.isRecording {
+                    Button(action: viewModel.toggleRecordingPause) {
+                        Label(
+                            viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"),
+                            systemImage: viewModel.isRecordingPaused ? "play.fill" : "pause.fill"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(viewModel.isRecordingPaused ? !viewModel.canResumeRecording : !viewModel.canPauseRecording)
+                }
+
+                statusPill(title: L10n.t("label.recording"), value: viewModel.recordingElapsedText)
+
+                Spacer(minLength: 8)
             }
 
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -398,9 +420,24 @@ struct ContentView: View {
                     .padding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(item.sourceFileName)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(item.sourceFileName)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+
+                        if let badge = viewModel.historyBadgeText(for: item) {
+                            Text(badge)
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color(red: 0.40, green: 0.30, blue: 0.02))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color(red: 1.0, green: 0.89, blue: 0.45).opacity(isDark ? 0.85 : 1.0))
+                                )
+                                .help(viewModel.historyBadgeHelp(for: item) ?? "")
+                        }
+                    }
 
                     Text(viewModel.historyMetaText(for: item))
                         .font(.system(size: 11, weight: .medium, design: .rounded))
@@ -415,12 +452,28 @@ struct ContentView: View {
                 Spacer(minLength: 4)
 
                 HStack(spacing: 4) {
+                    if viewModel.canQueueHistoryItem(item) {
+                        Button(action: { viewModel.queueHistoryItemForTranscription(item.id) }) {
+                            Image(systemName: "waveform.badge.magnifyingglass")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L10n.t("help.transcribeFromHistory"))
+                    }
+
                     if item.state == .completed {
                         Button(action: { viewModel.revealTranscriptInFinder(item.id) }) {
                             Image(systemName: "folder")
                         }
                         .buttonStyle(.borderless)
                         .help(L10n.t("help.openTranscript"))
+                    }
+
+                    if item.audioPath != nil {
+                        Button(action: { viewModel.revealAudioInFinder(item.id) }) {
+                            Image(systemName: "waveform")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L10n.t("help.openAudio"))
                     }
 
                     Button(action: { viewModel.deleteHistoryItem(item.id) }) {
@@ -433,11 +486,9 @@ struct ContentView: View {
 
             if item.state == .processing {
                 if let fraction = item.progressFraction {
-                    ProgressView(value: fraction)
-                        .progressViewStyle(.linear)
-                } else {
-                    ProgressView()
-                        .controlSize(.small)
+                    Text(String(format: "%.0f%%", fraction * 100))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
                 }
 
                 if !viewModel.etaText(for: item).isEmpty {
@@ -493,27 +544,7 @@ struct ContentView: View {
                     .disabled(viewModel.transcriptText.isEmpty)
             }
 
-            ZStack(alignment: .topTrailing) {
-                editorTextView
-
-                if viewModel.isTranscribing {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-
-                        if let fraction = viewModel.activeProgressFraction {
-                            ProgressView(value: fraction)
-                                .progressViewStyle(.linear)
-                                .frame(width: 120)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(cardBackgroundColor, in: Capsule())
-                    .overlay(Capsule().stroke(cardBorderColor, lineWidth: 1))
-                    .padding(10)
-                }
-            }
+            editorTextView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)
@@ -560,9 +591,19 @@ struct ContentView: View {
 
             Spacer()
 
-            Link(L10n.t("footer.author"), destination: URL(string: "https://zakharov.asia/")!)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(accentColor)
+            HStack(spacing: 6) {
+                Link("GitHub", destination: URL(string: "https://github.com/globa-me/GZWhisper")!)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(accentColor)
+
+                Text("|")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                Link(L10n.t("footer.author"), destination: URL(string: "https://zakharov.asia/")!)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(accentColor)
+            }
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 4)
