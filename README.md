@@ -10,7 +10,7 @@ This repository includes desktop apps for three platforms:
 After the model is downloaded, transcription runs on the user's machine.
 
 ## What it does
-# (macOS version is a priority)
+### (macOS version is a priority)
 
 - Download a Whisper model from Hugging Face, or connect an existing local model.
 - Accept audio and video files.
@@ -189,7 +189,7 @@ Output: `build/GZWhisper-macOS.zip`
 
 Output: `build/GZWhisper-Installer.dmg`
 
-### First run (all platforms)
+# First run (all platforms)
 
 1. Open the app.
 2. Click **Download model** (or connect an existing local model folder).
