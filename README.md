@@ -10,9 +10,9 @@ This repository includes desktop apps for three platforms:
 After the model is downloaded, transcription runs on the user's machine.
 
 ## What it does
+# (macOS version is a priority)
 
 - Download a Whisper model from Hugging Face, or connect an existing local model.
-- Show download progress while the model is being fetched.
 - Accept audio and video files.
 - Extract audio from video automatically.
 - Record audio directly in the macOS app:
@@ -44,7 +44,7 @@ Install:
 
 1. Open `GZWhisper-Installer.dmg`.
 2. Drag `GZWhisper.app` to `Applications`.
-3. Launch the app from `Applications`.
+3. Launch the app from `Applications`. If you will have problems with app signature, check "Run_if_blocked.txt"
 
 ## Quick Start (Linux)
 
@@ -99,7 +99,7 @@ If the command is not in `PATH`, run:
 
 Output: `build/GZWhisper-linux.tar.gz`
 
-## Quick Start (Windows Portable)
+## Quick Start (Windows Portable version, still in development)
 
 Run the portable executable:
 
@@ -189,14 +189,14 @@ Output: `build/GZWhisper-macOS.zip`
 
 Output: `build/GZWhisper-Installer.dmg`
 
-## First run (all platforms)
+### First run (all platforms)
 
 1. Open the app.
 2. Click **Download model** (or connect an existing local model folder).
 3. Wait for one-time environment setup and dependency install.
 4. Pick an audio/video file and run transcription.
 
-## Notes for non-technical users
+## Notes
 
 - For macOS builds with embedded wheelhouse, Python dependencies install without extra system prompts.
 - Internet is needed for first-time model download (and for dependency install only if no wheelhouse is bundled).
@@ -223,7 +223,7 @@ Output: `build/GZWhisper-Installer.dmg`
 - Fixed crash when starting `System + microphone` recording after permissions were granted.
 - Simplified transcription loading UI to a single active spinner in history.
 
-### 2026-02-26 (v1.1, build 2)
+### 2026-02-16 (v1.1, build 2)
 
 - Added macOS transcription queue and history with persisted items, status states, and quick file actions from the app.
 - Added streaming transcription progress events (`processed_seconds` / `total_seconds`) and ETA display in the UI.
@@ -238,4 +238,4 @@ Output: `build/GZWhisper-Installer.dmg`
 
 ## License
 
-No license file yet. If you want, add `MIT` as a quick default.
+MIT
