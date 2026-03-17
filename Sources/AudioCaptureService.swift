@@ -124,7 +124,12 @@ final class AudioCaptureService: NSObject {
         syncQueue { state == .paused }
     }
 
-    func start(mode: RecordingInputMode, destinationURL: URL) async throws {
+    func start(
+        mode: RecordingInputMode,
+        destinationURL: URL,
+        sessionID: UUID = UUID(),
+        stagingDirectoryURL: URL? = nil
+    ) async throws {
         try await requestPermissions(for: mode)
 
         try syncQueueThrows {
@@ -139,10 +144,14 @@ final class AudioCaptureService: NSObject {
             pausedAt = nil
             totalPausedSeconds = 0
 
-            let fileNameBase = destinationURL.deletingPathExtension().lastPathComponent
-            let tempDir = FileManager.default.temporaryDirectory
-            systemTempURL = tempDir.appendingPathComponent("\(fileNameBase)-system-\(UUID().uuidString).m4a")
-            microphoneTempURL = tempDir.appendingPathComponent("\(fileNameBase)-mic-\(UUID().uuidString).m4a")
+            let tempDir = stagingDirectoryURL ?? FileManager.default.temporaryDirectory
+            do {
+                try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            } catch {
+                throw AudioCaptureServiceError.captureFailed(error.localizedDescription)
+            }
+            systemTempURL = tempDir.appendingPathComponent("\(sessionID.uuidString)-system.m4a")
+            microphoneTempURL = tempDir.appendingPathComponent("\(sessionID.uuidString)-microphone.m4a")
 
             systemWriter = nil
             systemWriterInput = nil

@@ -27,6 +27,7 @@ struct ContentView: View {
 
     @State private var isHistoryVisible = true
     @State private var isDropTargeted = false
+    @State private var recordingHUDWindowController: RecordingHUDWindowController?
 
     private var isDark: Bool {
         colorScheme == .dark
@@ -104,6 +105,19 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.initialize()
+            if recordingHUDWindowController == nil {
+                recordingHUDWindowController = RecordingHUDWindowController(viewModel: viewModel)
+            }
+            updateRecordingHUDWindowVisibility()
+        }
+        .onDisappear {
+            recordingHUDWindowController?.hide()
+        }
+        .onChange(of: viewModel.isRecording) { _ in
+            updateRecordingHUDWindowVisibility()
+        }
+        .onChange(of: viewModel.isRecordingHUDVisible) { _ in
+            updateRecordingHUDWindowVisibility()
         }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted) { providers in
             viewModel.handleDroppedProviders(providers)
@@ -123,7 +137,7 @@ struct ContentView: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(accentColor)
 
-                    Text(viewModel.appVersionLabel)
+                    Text("1.3")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -262,8 +276,8 @@ struct ContentView: View {
                 editorCard
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.2), value: isHistoryVisible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var inputCard: some View {
@@ -349,9 +363,25 @@ struct ContentView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(viewModel.isRecordingPaused ? !viewModel.canResumeRecording : !viewModel.canPauseRecording)
+
+                    if !viewModel.isRecordingHUDVisible {
+                        Button(action: viewModel.showRecordingHUD) {
+                            Image(systemName: "rectangle.topthird.inset.filled")
+                        }
+                        .buttonStyle(.bordered)
+                        .help(L10n.t("help.showRecordingHUD"))
+                    }
                 }
 
                 statusPill(title: L10n.t("label.recording"), value: viewModel.recordingElapsedText)
+
+                Menu {
+                    Toggle(L10n.t("setting.hudAutoShow"), isOn: $viewModel.shouldShowHUDOnRecordingStart)
+                    Toggle(L10n.t("setting.autoPauseSleep"), isOn: $viewModel.shouldAutoPauseOnSleep)
+                } label: {
+                    Label(L10n.t("button.recordingOptions"), systemImage: "slider.horizontal.3")
+                }
+                .help(L10n.t("help.recordingOptions"))
 
                 Spacer(minLength: 8)
             }
@@ -587,7 +617,7 @@ struct ContentView: View {
             Text(viewModel.statusMessage)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
 
             Spacer()
 
@@ -674,6 +704,18 @@ struct ContentView: View {
             return .green
         case .failed:
             return .red
+        }
+    }
+
+    private func updateRecordingHUDWindowVisibility() {
+        guard let recordingHUDWindowController else {
+            return
+        }
+
+        if viewModel.isRecording && viewModel.isRecordingHUDVisible {
+            recordingHUDWindowController.show()
+        } else {
+            recordingHUDWindowController.hide()
         }
     }
 }

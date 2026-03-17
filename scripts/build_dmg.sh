@@ -3,13 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-APP_NAME="GZWhisper"
-APP_BUNDLE="$APP_NAME.app"
+APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper-1.3}"
+APP_TITLE="${APP_TITLE:-GZWhisper 1.3}"
+APP_BUNDLE="$APP_BUNDLE_NAME.app"
 APP_PATH="$BUILD_DIR/$APP_BUNDLE"
-DMG_NAME="GZWhisper-Installer"
+DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.3}"
 DMG_PATH="$BUILD_DIR/${DMG_NAME}.dmg"
 TEMP_DMG="$BUILD_DIR/${DMG_NAME}-temp.dmg"
-VOL_NAME="GZWhisper Installer"
+VOL_NAME="${VOL_NAME:-GZWhisper 1.3 Installer}"
 STAGING_DIR="$BUILD_DIR/dmg-staging"
 BG_DIR="$STAGING_DIR/.background"
 BG_PATH="$BG_DIR/background.png"
@@ -48,31 +49,48 @@ ln -s /Applications "$STAGING_DIR/Applications"
 cat > "$INSTRUCTIONS_PATH" <<'TEXT'
 Install GZWhisper:
 
-1. Drag GZWhisper.app to Applications.
+1. Drag __APP_BUNDLE__ to Applications.
 2. Eject this installer.
-3. Open GZWhisper from Applications.
+3. Open __APP_BUNDLE_NAME__ from Applications.
 
-If macOS blocks launch, run Enable_GZWhisper.command once,
-enter your password, then launch again.
+If macOS blocks launch (recommended fix):
+1. Open System Settings -> Privacy & Security.
+2. Scroll down and click Open Anyway for __APP_BUNDLE_NAME__.
+3. Confirm with your Mac password or Touch ID.
+4. Launch __APP_BUNDLE_NAME__ again.
+
+Alternative fix:
+Run Enable_GZWhisper.command once, enter your password, then launch again.
 TEXT
+sed -i '' "s/__APP_BUNDLE__/$APP_BUNDLE/g; s/__APP_BUNDLE_NAME__/$APP_BUNDLE_NAME/g" "$INSTRUCTIONS_PATH"
 
 cat > "$TERMINAL_FIX_PATH" <<'TEXT'
-If Enable_GZWhisper.command is blocked:
+If __APP_BUNDLE_NAME__ is blocked:
+
+Preferred fix from macOS settings:
+1) Open System Settings -> Privacy & Security.
+2) Scroll down and click Open Anyway for __APP_BUNDLE_NAME__.
+3) Confirm with your Mac password or Touch ID.
+4) Open __APP_BUNDLE_NAME__ again.
+
+If Enable_GZWhisper.command is blocked too:
 
 1) Open Terminal.
 2) Run:
-sudo xattr -dr com.apple.quarantine "/Volumes/GZWhisper Installer"
-sudo xattr -dr com.apple.quarantine "/Volumes/GZWhisper Installer/Enable_GZWhisper.command"
-sudo xattr -dr com.apple.quarantine /Applications/GZWhisper.app
-sudo spctl --add --label "GZWhisper Local" /Applications/GZWhisper.app
-open /Applications/GZWhisper.app
+sudo xattr -dr com.apple.quarantine "/Volumes/__VOL_NAME__"
+sudo xattr -dr com.apple.quarantine "/Volumes/__VOL_NAME__/Enable_GZWhisper.command"
+sudo xattr -dr com.apple.quarantine "/Applications/__APP_BUNDLE__"
+sudo spctl --add --label "GZWhisper Local" "/Applications/__APP_BUNDLE__"
+open "/Applications/__APP_BUNDLE__"
 TEXT
+sed -i '' "s/__VOL_NAME__/$VOL_NAME/g; s/__APP_BUNDLE__/$APP_BUNDLE/g; s/__APP_BUNDLE_NAME__/$APP_BUNDLE_NAME/g" "$TERMINAL_FIX_PATH"
 
-swift - <<'SWIFT' "$BG_PATH"
+swift - <<'SWIFT' "$BG_PATH" "$APP_TITLE"
 import AppKit
 import Foundation
 
 let out = CommandLine.arguments[1]
+let appTitle = CommandLine.arguments[2]
 let size = NSSize(width: 920, height: 560)
 let image = NSImage(size: size)
 
@@ -100,9 +118,10 @@ let noteAttrs: [NSAttributedString.Key: Any] = [
     .foregroundColor: NSColor(calibratedWhite: 0.30, alpha: 1.0),
 ]
 
-("GZWhisper").draw(at: NSPoint(x: 36, y: 500), withAttributes: titleAttrs)
+(appTitle).draw(at: NSPoint(x: 36, y: 500), withAttributes: titleAttrs)
 ("Перетащите приложение в папку Applications для установки").draw(at: NSPoint(x: 36, y: 468), withAttributes: subtitleAttrs)
-("Если запуск заблокирован: запустите Enable_GZWhisper.command").draw(at: NSPoint(x: 36, y: 438), withAttributes: noteAttrs)
+("Если запуск заблокирован: System Settings -> Privacy & Security -> Open Anyway").draw(at: NSPoint(x: 36, y: 438), withAttributes: noteAttrs)
+("Скрипт Enable_GZWhisper.command оставлен как запасной вариант").draw(at: NSPoint(x: 36, y: 418), withAttributes: noteAttrs)
 
 let shadow = NSShadow()
 shadow.shadowColor = NSColor(calibratedWhite: 0.0, alpha: 0.12)

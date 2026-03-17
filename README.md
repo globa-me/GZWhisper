@@ -1,6 +1,6 @@
 # GZWhisper
 
-GZWhisper is a local-first speech-to-text app for audio and video files.
+GZWhisper is a local-first speech app for transcription of audio/video files.
 
 This repository includes desktop apps for three platforms:
 - `macOS` app (SwiftUI): `Sources/`
@@ -31,20 +31,23 @@ After the model is downloaded, transcription runs on the user's machine.
 
 Current macOS package target is `arm64` only (Apple Silicon).
 
-Download the latest installer DMG:
+Download the latest release files:
 
-- [GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
+- [Latest DMG: GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
+- [Latest ZIP: GZWhisper-macOS.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS.zip)
 
 Direct version links:
 
-- [v1.2 (current): GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.2.0/GZWhisper-Installer.dmg)
-- [v1.1 (legacy, no recording): GZWhisper-Installer-1.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.1.0/GZWhisper-Installer-1.1.dmg)
+- [v1.3.0 (current): GZWhisper-Installer-1.3.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.3.0/GZWhisper-Installer-1.3.dmg)
+- [v1.3.0 (current): GZWhisper-macOS-1.3.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.3.0/GZWhisper-macOS-1.3.zip)
+- [v1.2.0 (legacy): GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.2.0/GZWhisper-Installer.dmg)
+- [v1.1.0 (legacy, no recording): GZWhisper-Installer-1.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.1.0/GZWhisper-Installer-1.1.dmg)
 
 Install:
 
-1. Open `GZWhisper-Installer.dmg`.
-2. Drag `GZWhisper.app` to `Applications`.
-3. Launch the app from `Applications`. If you will have problems with app signature, check "Run_if_blocked.txt"
+1. Open `GZWhisper-Installer.dmg` (or versioned `GZWhisper-Installer-1.3.dmg`).
+2. Drag `GZWhisper-1.3.app` to `Applications`.
+3. Launch the app from `Applications`. If macOS blocks the app, open `Run_If_Blocked.txt` from the DMG.
 
 ## Quick Start (Linux)
 
@@ -138,13 +141,25 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer.dmg`
+Output: `build/GZWhisper-Installer-1.3.dmg`
 
 Optional version override for release builds:
 
 ```bash
 APP_VERSION=1.2 APP_BUILD=4 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
+```
+
+For side-by-side install with `v1.2`, `v1.3` defaults are intentionally versioned:
+- app bundle: `build/GZWhisper-1.3.app`
+- bundle id: `com.gzakharov.gzwhisper.v13`
+- installer: `build/GZWhisper-Installer-1.3.dmg`
+
+If you need a legacy non-versioned app name for a single-track install, override:
+
+```bash
+APP_BUNDLE_NAME=GZWhisper APP_DISPLAY_NAME=GZWhisper APP_BUNDLE_ID=com.gzakharov.gzwhisper ./scripts/build_app.sh
+DMG_NAME=GZWhisper-Installer APP_BUNDLE_NAME=GZWhisper APP_TITLE=GZWhisper ./scripts/build_dmg.sh
 ```
 
 ## Build from Source (macOS, developers)
@@ -171,7 +186,7 @@ PYTHON_BIN=/opt/homebrew/bin/python3 ./scripts/prepare_embedded_python.sh
 ./scripts/build_app.sh
 ```
 
-Output: `build/GZWhisper.app`
+Output: `build/GZWhisper-1.3.app`
 
 ### 3) Build ZIP for distribution
 
@@ -179,7 +194,7 @@ Output: `build/GZWhisper.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS.zip`
+Output: `build/GZWhisper-macOS-1.3.zip`
 
 ### 4) Build DMG installer
 
@@ -187,7 +202,7 @@ Output: `build/GZWhisper-macOS.zip`
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer.dmg`
+Output: `build/GZWhisper-Installer-1.3.dmg`
 
 # First run (all platforms)
 
@@ -212,6 +227,11 @@ Output: `build/GZWhisper-Installer.dmg`
 - `scripts/` — build, package, install, uninstall scripts.
 
 ## Changelog
+
+### 2026-02-27 (v1.3, build 1)
+
+- Updated macOS packaging defaults so `v1.3` can be installed alongside `v1.2` (`GZWhisper-1.3.app`, `com.gzakharov.gzwhisper.v13`).
+- Updated app version to `1.3`.
 
 ### 2026-02-26 (v1.2, build 4)
 
