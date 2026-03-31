@@ -38,15 +38,17 @@ Download the latest release files:
 
 Direct version links:
 
-- [v1.3.0 (current): GZWhisper-Installer-1.3.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.3.0/GZWhisper-Installer-1.3.dmg)
-- [v1.3.0 (current): GZWhisper-macOS-1.3.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.3.0/GZWhisper-macOS-1.3.zip)
+- [v1.4.0 (current): GZWhisper-Installer-1.4.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.4.0/GZWhisper-Installer-1.4.dmg)
+- [v1.4.0 (current): GZWhisper-macOS-1.4.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.4.0/GZWhisper-macOS-1.4.zip)
+- [v1.3.0 (legacy): GZWhisper-Installer-1.3.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.3.0/GZWhisper-Installer-1.3.dmg)
+- [v1.3.0 (legacy): GZWhisper-macOS-1.3.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.3.0/GZWhisper-macOS-1.3.zip)
 - [v1.2.0 (legacy): GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.2.0/GZWhisper-Installer.dmg)
 - [v1.1.0 (legacy, no recording): GZWhisper-Installer-1.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.1.0/GZWhisper-Installer-1.1.dmg)
 
 Install:
 
-1. Open `GZWhisper-Installer.dmg` (or versioned `GZWhisper-Installer-1.3.dmg`).
-2. Drag `GZWhisper-1.3.app` to `Applications`.
+1. Open `GZWhisper-Installer.dmg` (or versioned `GZWhisper-Installer-1.4.dmg`).
+2. Drag `GZWhisper-1.4.app` to `Applications`.
 3. Launch the app from `Applications`. If macOS blocks the app, open `Run_If_Blocked.txt` from the DMG.
 
 ## Quick Start (Linux)
@@ -141,19 +143,21 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.3.dmg`
+Output: `build/GZWhisper-Installer-1.4.dmg`
 
-Optional version override for release builds:
+Optional version/build override for release builds:
 
 ```bash
-APP_VERSION=1.2 APP_BUILD=4 ./scripts/build_app.sh
+APP_VERSION=1.4 APP_BUILD=310326 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
 ```
 
-For side-by-side install with `v1.2`, `v1.3` defaults are intentionally versioned:
-- app bundle: `build/GZWhisper-1.3.app`
-- bundle id: `com.gzakharov.gzwhisper.v13`
-- installer: `build/GZWhisper-Installer-1.3.dmg`
+`APP_BUILD` now uses a date code in `DDMMYY` format.
+
+For side-by-side install with `v1.2`, `v1.3`, `v1.4` defaults are intentionally versioned:
+- app bundle: `build/GZWhisper-1.4.app`
+- bundle id: `com.gzakharov.gzwhisper.v14`
+- installer: `build/GZWhisper-Installer-1.4.dmg`
 
 If you need a legacy non-versioned app name for a single-track install, override:
 
@@ -186,7 +190,7 @@ PYTHON_BIN=/opt/homebrew/bin/python3 ./scripts/prepare_embedded_python.sh
 ./scripts/build_app.sh
 ```
 
-Output: `build/GZWhisper-1.3.app`
+Output: `build/GZWhisper-1.4.app`
 
 ### 3) Build ZIP for distribution
 
@@ -194,7 +198,7 @@ Output: `build/GZWhisper-1.3.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS-1.3.zip`
+Output: `build/GZWhisper-macOS-1.4.zip`
 
 ### 4) Build DMG installer
 
@@ -202,7 +206,7 @@ Output: `build/GZWhisper-macOS-1.3.zip`
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.3.dmg`
+Output: `build/GZWhisper-Installer-1.4.dmg`
 
 # First run (all platforms)
 
@@ -227,6 +231,12 @@ Output: `build/GZWhisper-Installer-1.3.dmg`
 - `scripts/` — build, package, install, uninstall scripts.
 
 ## Changelog
+
+### 2026-03-31 (v1.4, build 310326)
+
+- Added history search for faster lookup of saved jobs and recordings.
+- Added inline rename for history entries while preserving original files on disk.
+- Updated the macOS app version to `1.4` and changed the build label to a `DDMMYY` date code.
 
 ### 2026-02-27 (v1.3, build 1)
 

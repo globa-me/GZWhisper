@@ -16,7 +16,7 @@ struct GZWhisperApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 1100, minHeight: 760)
+                .frame(minWidth: 700, idealWidth: 1100, minHeight: 500, idealHeight: 760)
         }
     }
 }
@@ -27,7 +27,11 @@ struct ContentView: View {
 
     @State private var isHistoryVisible = true
     @State private var isDropTargeted = false
+    @State private var historySearchText = ""
+    @State private var editingHistoryItemID: UUID?
+    @State private var historyRenameDraft = ""
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
+    @FocusState private var focusedHistoryRenameFieldID: UUID?
 
     private var isDark: Bool {
         colorScheme == .dark
@@ -91,6 +95,21 @@ struct ContentView: View {
         isDark ? Color.orange.opacity(0.45) : Color.orange.opacity(0.35)
     }
 
+    private var filteredHistoryItems: [TranscriptHistoryItem] {
+        viewModel.filteredHistoryItems(matching: historySearchText)
+    }
+
+    private var isHistorySearchActive: Bool {
+        !historySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var historyCountLabel: String {
+        if isHistorySearchActive {
+            return "\(filteredHistoryItems.count)/\(viewModel.historyCount)"
+        }
+        return "\(viewModel.historyCount)"
+    }
+
     var body: some View {
         ZStack {
             backgroundGradient
@@ -137,12 +156,7 @@ struct ContentView: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(accentColor)
 
-                    Text("1.3")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(pillBackgroundColor, in: Capsule())
-                        .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
+                    versionBadge
                 }
 
                 Text(L10n.t("app.subtitle"))
@@ -155,7 +169,23 @@ struct ContentView: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
 
             modelMiniCard
-                .frame(width: 380)
+                .frame(minWidth: 240, idealWidth: 380, maxWidth: 380)
+        }
+    }
+
+    private var versionBadge: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(viewModel.appVersionLabel)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(pillBackgroundColor, in: Capsule())
+                .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
+
+            Text(viewModel.appBuildLabel)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.secondary.opacity(isDark ? 0.72 : 0.58))
+                .offset(y: -8)
         }
     }
 
@@ -267,7 +297,7 @@ struct ContentView: View {
         HStack(spacing: 12) {
             if isHistoryVisible {
                 historyPanel
-                    .frame(width: 320)
+                    .frame(minWidth: 220, idealWidth: 320, maxWidth: 360)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
@@ -322,7 +352,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 160)
+                .frame(minWidth: 120, idealWidth: 160, maxWidth: 200)
 
                 statusPill(title: L10n.t("label.detectedLanguage"), value: viewModel.detectedLanguage)
 
@@ -341,7 +371,7 @@ struct ContentView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(width: 220)
+                .frame(minWidth: 160, idealWidth: 220, maxWidth: 280)
                 .disabled(viewModel.isRecording)
 
                 Button(action: viewModel.isRecording ? viewModel.stopRecording : viewModel.startRecording) {
@@ -414,12 +444,16 @@ struct ContentView: View {
 
                 Spacer()
 
-                Text("\(viewModel.historyCount)")
+                Text(historyCountLabel)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(pillBackgroundColor, in: Capsule())
                     .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
+            }
+
+            if !viewModel.historyItems.isEmpty {
+                historySearchField
             }
 
             if viewModel.historyItems.isEmpty {
@@ -428,10 +462,16 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 6)
                 Spacer()
+            } else if filteredHistoryItems.isEmpty {
+                Text(L10n.t("text.historySearchEmpty"))
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+                Spacer()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(viewModel.historyItems) { item in
+                        ForEach(filteredHistoryItems) { item in
                             historyItemRow(item)
                         }
                     }
@@ -443,6 +483,29 @@ struct ContentView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
     }
 
+    private var historySearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField(L10n.t("placeholder.historySearch"), text: $historySearchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+
+            if isHistorySearchActive {
+                Button(action: { historySearchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(editorBackgroundColor.opacity(0.65), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(editorBorderColor, lineWidth: 1))
+    }
+
     private func historyItemRow(_ item: TranscriptHistoryItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
@@ -451,9 +514,23 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(item.sourceFileName)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .lineLimit(1)
+                        if editingHistoryItemID == item.id {
+                            TextField("", text: $historyRenameDraft, prompt: Text(item.sourceFileName))
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(pillBackgroundColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(pillBorderColor, lineWidth: 1))
+                                .focused($focusedHistoryRenameFieldID, equals: item.id)
+                                .onSubmit {
+                                    commitHistoryRename(for: item.id)
+                                }
+                        } else {
+                            Text(viewModel.historyDisplayName(for: item))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                        }
 
                         if let badge = viewModel.historyBadgeText(for: item) {
                             Text(badge)
@@ -469,6 +546,13 @@ struct ContentView: View {
                         }
                     }
 
+                    if let originalName = viewModel.historyOriginalNameText(for: item) {
+                        Text(originalName)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
                     Text(viewModel.historyMetaText(for: item))
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
@@ -482,35 +566,55 @@ struct ContentView: View {
                 Spacer(minLength: 4)
 
                 HStack(spacing: 4) {
-                    if viewModel.canQueueHistoryItem(item) {
-                        Button(action: { viewModel.queueHistoryItemForTranscription(item.id) }) {
-                            Image(systemName: "waveform.badge.magnifyingglass")
+                    if editingHistoryItemID == item.id {
+                        Button(action: { commitHistoryRename(for: item.id) }) {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.green)
                         }
                         .buttonStyle(.borderless)
-                        .help(L10n.t("help.transcribeFromHistory"))
-                    }
 
-                    if item.state == .completed {
-                        Button(action: { viewModel.revealTranscriptInFinder(item.id) }) {
-                            Image(systemName: "folder")
+                        Button(action: cancelHistoryRename) {
+                            Image(systemName: "xmark")
+                                .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.borderless)
-                        .help(L10n.t("help.openTranscript"))
-                    }
+                    } else {
+                        if viewModel.canQueueHistoryItem(item) {
+                            Button(action: { viewModel.queueHistoryItemForTranscription(item.id) }) {
+                                Image(systemName: "waveform.badge.magnifyingglass")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(L10n.t("help.transcribeFromHistory"))
+                        }
 
-                    if item.audioPath != nil {
-                        Button(action: { viewModel.revealAudioInFinder(item.id) }) {
-                            Image(systemName: "waveform")
+                        if item.state == .completed {
+                            Button(action: { viewModel.revealTranscriptInFinder(item.id) }) {
+                                Image(systemName: "folder")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(L10n.t("help.openTranscript"))
+                        }
+
+                        if item.audioPath != nil {
+                            Button(action: { viewModel.revealAudioInFinder(item.id) }) {
+                                Image(systemName: "waveform")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(L10n.t("help.openAudio"))
+                        }
+
+                        Button(action: { beginHistoryRename(item) }) {
+                            Image(systemName: "pencil")
                         }
                         .buttonStyle(.borderless)
-                        .help(L10n.t("help.openAudio"))
-                    }
+                        .help(L10n.t("help.renameHistoryItem"))
 
-                    Button(action: { viewModel.deleteHistoryItem(item.id) }) {
-                        Image(systemName: "trash")
+                        Button(action: { viewModel.deleteHistoryItem(item.id) }) {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(!viewModel.canDeleteHistoryItem(item))
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(!viewModel.canDeleteHistoryItem(item))
                 }
             }
 
@@ -550,8 +654,28 @@ struct ContentView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            guard editingHistoryItemID != item.id else {
+                return
+            }
             viewModel.openHistoryItem(item.id)
         }
+    }
+
+    private func beginHistoryRename(_ item: TranscriptHistoryItem) {
+        editingHistoryItemID = item.id
+        historyRenameDraft = viewModel.historyDisplayName(for: item)
+        focusedHistoryRenameFieldID = item.id
+    }
+
+    private func commitHistoryRename(for id: UUID) {
+        viewModel.renameHistoryItem(id, to: historyRenameDraft)
+        cancelHistoryRename()
+    }
+
+    private func cancelHistoryRename() {
+        editingHistoryItemID = nil
+        historyRenameDraft = ""
+        focusedHistoryRenameFieldID = nil
     }
 
     private var editorCard: some View {
