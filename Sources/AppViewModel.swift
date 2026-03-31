@@ -105,6 +105,11 @@ struct TranscriptHistoryItem: Identifiable, Codable {
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    private struct TranscriptSearchCacheEntry {
+        let modificationDate: Date?
+        let normalizedText: String
+    }
+
     @Published var modelStatus = L10n.t("status.modelNotLoaded")
     @Published var modelLocationText = ""
     @Published var modelSourceText = ""
@@ -180,6 +185,7 @@ final class AppViewModel: ObservableObject {
     private var recordingPausedTotalSeconds: Double = 0
     private var recordingTimer: Timer?
     private var activeRecordingSession: ActiveRecordingSession?
+    private var transcriptSearchCache: [String: TranscriptSearchCacheEntry] = [:]
     private var workspaceObservers: [NSObjectProtocol] = []
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
@@ -791,6 +797,7 @@ final class AppViewModel: ObservableObject {
         }
 
         if let transcriptPath = item.transcriptPath {
+            transcriptSearchCache.removeValue(forKey: transcriptPath)
             try? FileManager.default.removeItem(at: URL(fileURLWithPath: transcriptPath))
         }
         if let audioPath = item.audioPath {
@@ -944,9 +951,11 @@ final class AppViewModel: ObservableObject {
                 item.transcriptPath ?? "",
             ]
 
-            return searchableFields.contains { field in
+            let hasFieldMatch = searchableFields.contains { field in
                 Self.normalizedHistorySearchText(field).contains(normalizedQuery)
             }
+
+            return hasFieldMatch || transcriptContentsContainQuery(for: item, normalizedQuery: normalizedQuery)
         }
     }
 
@@ -1102,6 +1111,10 @@ final class AppViewModel: ObservableObject {
         historyItems[index].progressFraction = 1.0
         historyItems[index].etaSeconds = nil
         historyItems[index].isRuntimeOnly = false
+        transcriptSearchCache[transcriptURL.path] = TranscriptSearchCacheEntry(
+            modificationDate: modificationDate(for: transcriptURL.path),
+            normalizedText: Self.normalizedHistorySearchText(result.text)
+        )
 
         transcriptText = result.text
         segments = result.segments
@@ -1277,6 +1290,8 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadHistoryFromDisk() {
+        transcriptSearchCache.removeAll()
+
         guard let data = try? Data(contentsOf: historyFileURL) else {
             historyItems = []
             return
@@ -1342,6 +1357,43 @@ final class AppViewModel: ObservableObject {
         historyItems.sort { $0.createdAt > $1.createdAt }
     }
 
+    private func transcriptContentsContainQuery(for item: TranscriptHistoryItem, normalizedQuery: String) -> Bool {
+        guard let transcriptPath = item.transcriptPath, !normalizedQuery.isEmpty else {
+            return false
+        }
+
+        return transcriptSearchText(at: transcriptPath).contains(normalizedQuery)
+    }
+
+    private func transcriptSearchText(at path: String) -> String {
+        let currentModificationDate = modificationDate(for: path)
+
+        if let cached = transcriptSearchCache[path], cached.modificationDate == currentModificationDate {
+            return cached.normalizedText
+        }
+
+        guard FileManager.default.fileExists(atPath: path) else {
+            transcriptSearchCache.removeValue(forKey: path)
+            return ""
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let normalizedText = (try? String(contentsOf: url, encoding: .utf8))
+            .map(Self.normalizedHistorySearchText) ?? ""
+
+        transcriptSearchCache[path] = TranscriptSearchCacheEntry(
+            modificationDate: currentModificationDate,
+            normalizedText: normalizedText
+        )
+
+        return normalizedText
+    }
+
+    private func modificationDate(for path: String) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return attributes?[.modificationDate] as? Date
+    }
+
     private static func normalizedHistoryCustomName(_ name: String, sourceFileName: String) -> String? {
         let normalized = name
             .components(separatedBy: .whitespacesAndNewlines)
@@ -1359,7 +1411,9 @@ final class AppViewModel: ObservableObject {
         text
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
             .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private static func normalizedBundleBuildLabel(_ value: String?) -> String? {
