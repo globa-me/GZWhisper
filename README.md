@@ -48,7 +48,7 @@ Direct version links:
 Install:
 
 1. Open `GZWhisper-Installer.dmg` (or versioned `GZWhisper-Installer-1.4.dmg`).
-2. Drag `GZWhisper-1.4.app` to `Applications`.
+2. Drag `GZWhisper.app` to `Applications`.
 3. Launch the app from `Applications`. If macOS blocks the app, open `Run_If_Blocked.txt` from the DMG.
 
 ## Quick Start (Linux)
@@ -154,9 +154,9 @@ APP_VERSION=1.4 APP_BUILD=310326 ./scripts/build_app.sh
 
 `APP_BUILD` now uses a date code in `DDMMYY` format.
 
-For side-by-side install with `v1.2`, `v1.3`, `v1.4` defaults are intentionally versioned:
-- app bundle: `build/GZWhisper-1.4.app`
-- bundle id: `com.gzakharov.gzwhisper.v14`
+The shipped app now uses the stable macOS app name and bundle id so it replaces the previous install cleanly:
+- app bundle: `build/GZWhisper.app`
+- bundle id: `com.gzakharov.gzwhisper`
 - installer: `build/GZWhisper-Installer-1.4.dmg`
 
 If you need a legacy non-versioned app name for a single-track install, override:
@@ -190,7 +190,7 @@ PYTHON_BIN=/opt/homebrew/bin/python3 ./scripts/prepare_embedded_python.sh
 ./scripts/build_app.sh
 ```
 
-Output: `build/GZWhisper-1.4.app`
+Output: `build/GZWhisper.app`
 
 ### 3) Build ZIP for distribution
 
@@ -237,6 +237,7 @@ Output: `build/GZWhisper-Installer-1.4.dmg`
 - Added history search for faster lookup of saved jobs and recordings.
 - Added inline rename for history entries while preserving original files on disk.
 - Updated the macOS app version to `1.4` and changed the build label to a `DDMMYY` date code.
+- Returned the macOS app bundle name to `GZWhisper.app` so new installs replace the previous app in `Applications`.
 
 ### 2026-02-27 (v1.3, build 1)
 

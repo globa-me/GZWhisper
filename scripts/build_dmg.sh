@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper-1.4}"
+APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
 APP_TITLE="${APP_TITLE:-GZWhisper 1.4}"
 APP_BUNDLE="$APP_BUNDLE_NAME.app"
 APP_PATH="$BUILD_DIR/$APP_BUNDLE"
@@ -175,7 +175,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-osascript <<APPLESCRIPT
+if ! osascript <<APPLESCRIPT
   tell application "Finder"
     tell disk "$VOL_NAME"
       open
@@ -188,7 +188,7 @@ osascript <<APPLESCRIPT
       set icon size of opts to 128
       set text size of opts to 14
       set background picture of opts to file ".background:background.png"
-      set position of item "$APP_BUNDLE" of container window to {220, 270}
+      set position of item "$APP_BUNDLE_NAME" of container window to {220, 270}
       set position of item "Applications" of container window to {700, 270}
       set position of item "$BYPASS_SCRIPT_NAME" of container window to {220, 430}
       set position of item "Install_Instructions.txt" of container window to {460, 430}
@@ -200,6 +200,9 @@ osascript <<APPLESCRIPT
     end tell
   end tell
 APPLESCRIPT
+then
+  echo "Warning: could not apply custom Finder layout to DMG; continuing with default layout." >&2
+fi
 
 sync
 hdiutil detach "$DEVICE" -quiet
