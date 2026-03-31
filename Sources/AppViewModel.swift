@@ -17,6 +17,7 @@ enum TranscriptJobState: String, Codable {
 struct TranscriptHistoryItem: Identifiable, Codable {
     let id: UUID
     var sourceFileName: String
+    var customName: String?
     var sourceFilePath: String
     var createdAt: Date
     var mediaDurationSeconds: Double?
@@ -34,6 +35,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     init(
         id: UUID = UUID(),
         sourceFileName: String,
+        customName: String? = nil,
         sourceFilePath: String,
         createdAt: Date,
         mediaDurationSeconds: Double?,
@@ -50,6 +52,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     ) {
         self.id = id
         self.sourceFileName = sourceFileName
+        self.customName = customName
         self.sourceFilePath = sourceFilePath
         self.createdAt = createdAt
         self.mediaDurationSeconds = mediaDurationSeconds
@@ -68,6 +71,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id
         case sourceFileName
+        case customName
         case sourceFilePath
         case createdAt
         case mediaDurationSeconds
@@ -87,10 +91,25 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     var hasAudio: Bool {
         audioPath != nil
     }
+
+    var displayName: String {
+        let normalized = customName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? sourceFileName : normalized
+    }
+
+    var hasCustomName: Bool {
+        let normalized = customName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !normalized.isEmpty && normalized != sourceFileName
+    }
 }
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    private struct TranscriptSearchCacheEntry {
+        let modificationDate: Date?
+        let normalizedText: String
+    }
+
     @Published var modelStatus = L10n.t("status.modelNotLoaded")
     @Published var modelLocationText = ""
     @Published var modelSourceText = ""
@@ -134,7 +153,8 @@ final class AppViewModel: ObservableObject {
     }
 
     let languageOptions = L10n.transcriptionLanguageOptions
-    let appVersionLabel = "1.3"
+    let appVersionLabel: String
+    let appBuildLabel: String
     let recordingModeOptions = RecordingInputMode.allCases
 
     private let engine = WhisperEngine.shared
@@ -165,6 +185,7 @@ final class AppViewModel: ObservableObject {
     private var recordingPausedTotalSeconds: Double = 0
     private var recordingTimer: Timer?
     private var activeRecordingSession: ActiveRecordingSession?
+    private var transcriptSearchCache: [String: TranscriptSearchCacheEntry] = [:]
     private var workspaceObservers: [NSObjectProtocol] = []
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
@@ -223,6 +244,13 @@ final class AppViewModel: ObservableObject {
 
     var canResumeRecording: Bool {
         isRecording && isRecordingPaused && !isStoppingRecording
+    }
+
+    init() {
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4"
+        appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        ) ?? "310326"
     }
 
     deinit {
@@ -672,7 +700,7 @@ final class AppViewModel: ObservableObject {
         let fileExists = FileManager.default.fileExists(atPath: historyItems[index].sourceFilePath)
         guard fileExists else {
             historyItems[index].state = .failed
-            historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].sourceFileName)
+            historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].displayName)
             persistHistoryToDisk()
             statusMessage = historyItems[index].errorMessage ?? L10n.t("status.failed")
             return
@@ -683,7 +711,7 @@ final class AppViewModel: ObservableObject {
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
         selectedHistoryItemID = id
-        statusMessage = L10n.f("status.fileSelected", historyItems[index].sourceFileName)
+        statusMessage = L10n.f("status.fileSelected", historyItems[index].displayName)
         sortHistoryByDateDesc()
         persistHistoryToDisk()
 
@@ -733,9 +761,9 @@ final class AppViewModel: ObservableObject {
             lastModelID = item.modelID
             detectedLanguage = item.detectedLanguage ?? L10n.t("status.languageNotDetected")
             currentEditorSourcePath = item.sourceFilePath
-            statusMessage = L10n.f("status.historyLoaded", item.sourceFileName)
+            statusMessage = L10n.f("status.historyLoaded", item.displayName)
         } catch {
-            statusMessage = L10n.f("status.fileMissing", item.sourceFileName)
+            statusMessage = L10n.f("status.fileMissing", item.displayName)
         }
     }
 
@@ -769,6 +797,7 @@ final class AppViewModel: ObservableObject {
         }
 
         if let transcriptPath = item.transcriptPath {
+            transcriptSearchCache.removeValue(forKey: transcriptPath)
             try? FileManager.default.removeItem(at: URL(fileURLWithPath: transcriptPath))
         }
         if let audioPath = item.audioPath {
@@ -784,8 +813,24 @@ final class AppViewModel: ObservableObject {
             currentEditorSourcePath = nil
         }
 
-        statusMessage = L10n.f("status.historyDeleted", item.sourceFileName)
+        statusMessage = L10n.f("status.historyDeleted", item.displayName)
         persistHistoryToDisk()
+    }
+
+    func renameHistoryItem(_ id: UUID, to proposedName: String) {
+        guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let sourceFileName = historyItems[index].sourceFileName
+        historyItems[index].customName = Self.normalizedHistoryCustomName(proposedName, sourceFileName: sourceFileName)
+        persistHistoryToDisk()
+
+        if historyItems[index].hasCustomName {
+            statusMessage = L10n.f("status.historyRenamed", historyItems[index].displayName)
+        } else {
+            statusMessage = L10n.f("status.historyRenameReset", sourceFileName)
+        }
     }
 
     func copyAllText() {
@@ -883,6 +928,37 @@ final class AppViewModel: ObservableObject {
         return "\(datePart) • \(durationPart)"
     }
 
+    func historyDisplayName(for item: TranscriptHistoryItem) -> String {
+        item.displayName
+    }
+
+    func historyOriginalNameText(for item: TranscriptHistoryItem) -> String? {
+        item.hasCustomName ? item.sourceFileName : nil
+    }
+
+    func filteredHistoryItems(matching query: String) -> [TranscriptHistoryItem] {
+        let normalizedQuery = Self.normalizedHistorySearchText(query)
+        guard !normalizedQuery.isEmpty else {
+            return historyItems
+        }
+
+        return historyItems.filter { item in
+            let searchableFields = [
+                item.displayName,
+                item.sourceFileName,
+                item.sourceFilePath,
+                item.audioPath ?? "",
+                item.transcriptPath ?? "",
+            ]
+
+            let hasFieldMatch = searchableFields.contains { field in
+                Self.normalizedHistorySearchText(field).contains(normalizedQuery)
+            }
+
+            return hasFieldMatch || transcriptContentsContainQuery(for: item, normalizedQuery: normalizedQuery)
+        }
+    }
+
     func historyBadgeText(for item: TranscriptHistoryItem) -> String? {
         if item.hasTranscript && item.hasAudio {
             return "t+a"
@@ -934,7 +1010,7 @@ final class AppViewModel: ObservableObject {
 
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             historyItems[index].state = .failed
-            historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].sourceFileName)
+            historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].displayName)
             persistHistoryToDisk()
             processNextQueuedItem()
             return
@@ -946,8 +1022,8 @@ final class AppViewModel: ObservableObject {
         historyItems[index].errorMessage = nil
         selectedHistoryItemID = itemID
 
-        currentTranscribingFileName = historyItems[index].sourceFileName
-        statusMessage = L10n.f("status.transcribingFile", historyItems[index].sourceFileName)
+        currentTranscribingFileName = historyItems[index].displayName
+        statusMessage = L10n.f("status.transcribingFile", historyItems[index].displayName)
         activeProgressFraction = nil
         activeETA = ""
 
@@ -1035,6 +1111,10 @@ final class AppViewModel: ObservableObject {
         historyItems[index].progressFraction = 1.0
         historyItems[index].etaSeconds = nil
         historyItems[index].isRuntimeOnly = false
+        transcriptSearchCache[transcriptURL.path] = TranscriptSearchCacheEntry(
+            modificationDate: modificationDate(for: transcriptURL.path),
+            normalizedText: Self.normalizedHistorySearchText(result.text)
+        )
 
         transcriptText = result.text
         segments = result.segments
@@ -1045,7 +1125,7 @@ final class AppViewModel: ObservableObject {
 
         activeProgressFraction = nil
         activeETA = ""
-        statusMessage = L10n.f("status.transcriptionCompletedFile", historyItems[index].sourceFileName)
+        statusMessage = L10n.f("status.transcriptionCompletedFile", historyItems[index].displayName)
 
         sortHistoryByDateDesc()
         persistHistoryToDisk()
@@ -1092,7 +1172,7 @@ final class AppViewModel: ObservableObject {
                     activeETA = ""
                 }
 
-                statusMessage = L10n.f("status.transcriptionProgress", fraction * 100, historyItems[index].sourceFileName)
+                statusMessage = L10n.f("status.transcriptionProgress", fraction * 100, historyItems[index].displayName)
             } else {
                 historyItems[index].progressFraction = nil
                 activeProgressFraction = nil
@@ -1210,6 +1290,8 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadHistoryFromDisk() {
+        transcriptSearchCache.removeAll()
+
         guard let data = try? Data(contentsOf: historyFileURL) else {
             historyItems = []
             return
@@ -1273,6 +1355,74 @@ final class AppViewModel: ObservableObject {
 
     private func sortHistoryByDateDesc() {
         historyItems.sort { $0.createdAt > $1.createdAt }
+    }
+
+    private func transcriptContentsContainQuery(for item: TranscriptHistoryItem, normalizedQuery: String) -> Bool {
+        guard let transcriptPath = item.transcriptPath, !normalizedQuery.isEmpty else {
+            return false
+        }
+
+        return transcriptSearchText(at: transcriptPath).contains(normalizedQuery)
+    }
+
+    private func transcriptSearchText(at path: String) -> String {
+        let currentModificationDate = modificationDate(for: path)
+
+        if let cached = transcriptSearchCache[path], cached.modificationDate == currentModificationDate {
+            return cached.normalizedText
+        }
+
+        guard FileManager.default.fileExists(atPath: path) else {
+            transcriptSearchCache.removeValue(forKey: path)
+            return ""
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let normalizedText = (try? String(contentsOf: url, encoding: .utf8))
+            .map(Self.normalizedHistorySearchText) ?? ""
+
+        transcriptSearchCache[path] = TranscriptSearchCacheEntry(
+            modificationDate: currentModificationDate,
+            normalizedText: normalizedText
+        )
+
+        return normalizedText
+    }
+
+    private func modificationDate(for path: String) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return attributes?[.modificationDate] as? Date
+    }
+
+    private static func normalizedHistoryCustomName(_ name: String, sourceFileName: String) -> String? {
+        let normalized = name
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        return normalized == sourceFileName ? nil : normalized
+    }
+
+    private static func normalizedHistorySearchText(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private static func normalizedBundleBuildLabel(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let digits = value.filter(\.isNumber)
+        return digits.isEmpty ? nil : digits
     }
 
     private func addRecordingToHistory(_ result: AudioCaptureService.CaptureResult) {
