@@ -3,14 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper-1.3}"
-APP_TITLE="${APP_TITLE:-GZWhisper 1.3}"
+APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
+APP_TITLE="${APP_TITLE:-GZWhisper 1.4.1}"
 APP_BUNDLE="$APP_BUNDLE_NAME.app"
 APP_PATH="$BUILD_DIR/$APP_BUNDLE"
-DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.3}"
+DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.4.1}"
 DMG_PATH="$BUILD_DIR/${DMG_NAME}.dmg"
 TEMP_DMG="$BUILD_DIR/${DMG_NAME}-temp.dmg"
-VOL_NAME="${VOL_NAME:-GZWhisper 1.3 Installer}"
+VOL_NAME="${VOL_NAME:-GZWhisper 1.4.1 Installer}"
 STAGING_DIR="$BUILD_DIR/dmg-staging"
 BG_DIR="$STAGING_DIR/.background"
 BG_PATH="$BG_DIR/background.png"
@@ -175,7 +175,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-osascript <<APPLESCRIPT
+if ! osascript <<APPLESCRIPT
   tell application "Finder"
     tell disk "$VOL_NAME"
       open
@@ -200,6 +200,9 @@ osascript <<APPLESCRIPT
     end tell
   end tell
 APPLESCRIPT
+then
+  echo "Warning: failed to customize DMG Finder layout; continuing with default layout." >&2
+fi
 
 sync
 hdiutil detach "$DEVICE" -quiet

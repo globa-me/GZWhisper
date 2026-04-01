@@ -140,6 +140,66 @@ final class WhisperEngine: @unchecked Sendable {
         }
     }
 
+    func runtimeSupportDirectoryURL() -> URL {
+        supportDirectory
+    }
+
+    func debugReport() -> String {
+        var lines: [String] = []
+        lines.append("bundle_path: \(Bundle.main.bundleURL.path)")
+        lines.append("support_directory: \(supportDirectory.path)")
+        lines.append("worker_script: \(workerScriptURL.path)")
+        lines.append("model_reference: \(modelReferenceURL.path)")
+
+        if let reference = currentModelReference() {
+            lines.append("model_id: \(reference.modelID)")
+            lines.append("model_path: \(reference.modelPath)")
+            lines.append("model_source_type: \(reference.sourceType.rawValue)")
+            lines.append("model_source_repo: \(reference.sourceRepo ?? "none")")
+        } else {
+            lines.append("model_id: none")
+        }
+
+        if let runtimeIssue = runtimeIssueDescription() {
+            lines.append("runtime_issue: \(runtimeIssue)")
+        } else {
+            lines.append("runtime_issue: none")
+        }
+
+        if let bootstrapPythonURL = try? resolvedBootstrapPythonURL() {
+            lines.append("bootstrap_python: \(bootstrapPythonURL.path)")
+        } else {
+            lines.append("bootstrap_python: missing")
+        }
+
+        lines.append("venv_directory: \(venvDirectory.path)")
+        lines.append("venv_python_expected: \(venvPythonURL.path)")
+
+        if let currentVenvPythonURL = existingVenvPythonURL() {
+            lines.append("venv_python_current: \(currentVenvPythonURL.path)")
+            lines.append("venv_python_executable: \(fileManager.isExecutableFile(atPath: currentVenvPythonURL.path))")
+
+            if let symlinkTarget = symbolicLinkDestination(for: currentVenvPythonURL) {
+                lines.append("venv_python_target: \(symlinkTarget.path)")
+            }
+        } else {
+            lines.append("venv_python_current: missing")
+            if let symlinkTarget = symbolicLinkDestination(for: venvPythonURL) {
+                lines.append("venv_python_target: \(symlinkTarget.path)")
+            }
+        }
+
+        let config = venvConfiguration()
+        if let home = config["home"] {
+            lines.append("venv_home: \(home)")
+        }
+        if let executable = config["executable"] {
+            lines.append("venv_executable: \(executable)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     func downloadModel(
         to destinationDirectory: URL,
         status: (String) -> Void,
@@ -376,12 +436,17 @@ final class WhisperEngine: @unchecked Sendable {
     }
 
     private func ensureVirtualEnvironment(status: (String) -> Void) throws {
-        guard !fileManager.fileExists(atPath: venvPythonURL.path) else {
+        let bootstrapPythonURL = try resolvedBootstrapPythonURL()
+
+        if shouldReuseVirtualEnvironment(bootstrapPythonURL: bootstrapPythonURL) {
             return
         }
 
+        if fileManager.fileExists(atPath: venvDirectory.path) {
+            try fileManager.removeItem(at: venvDirectory)
+        }
+
         status(L10n.t("engine.creatingVenv"))
-        let bootstrapPythonURL = try resolvedBootstrapPythonURL()
         let result = try ProcessRunner.run(
             executableURL: bootstrapPythonURL,
             arguments: ["-m", "venv", venvDirectory.path]
@@ -530,6 +595,96 @@ final class WhisperEngine: @unchecked Sendable {
 
     private var venvPythonURL: URL {
         venvDirectory.appendingPathComponent("bin/python3")
+    }
+
+    private func shouldReuseVirtualEnvironment(bootstrapPythonURL: URL) -> Bool {
+        guard fileManager.fileExists(atPath: venvDirectory.path) else {
+            return false
+        }
+
+        guard let currentVenvPythonURL = existingVenvPythonURL(), fileManager.isExecutableFile(atPath: currentVenvPythonURL.path) else {
+            return false
+        }
+
+        let normalizedBootstrapPythonURL = normalizePathURL(bootstrapPythonURL)
+        let config = venvConfiguration()
+
+        if
+            let recordedExecutable = config["executable"],
+            !recordedExecutable.isEmpty
+        {
+            let recordedExecutableURL = URL(fileURLWithPath: recordedExecutable)
+            if normalizePathURL(recordedExecutableURL) != normalizedBootstrapPythonURL {
+                return false
+            }
+        } else if let symlinkTarget = symbolicLinkDestination(for: currentVenvPythonURL) {
+            if normalizePathURL(symlinkTarget) != normalizedBootstrapPythonURL {
+                return false
+            }
+        }
+
+        if
+            let recordedHome = config["home"],
+            !recordedHome.isEmpty
+        {
+            let recordedHomeURL = URL(fileURLWithPath: recordedHome)
+            let normalizedBootstrapHomeURL = normalizePathURL(bootstrapPythonURL.deletingLastPathComponent())
+            if normalizePathURL(recordedHomeURL) != normalizedBootstrapHomeURL {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func existingVenvPythonURL() -> URL? {
+        let candidates = [
+            venvPythonURL,
+            venvDirectory.appendingPathComponent("bin/python"),
+        ]
+
+        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+
+        return nil
+    }
+
+    private func venvConfiguration() -> [String: String] {
+        let configURL = venvDirectory.appendingPathComponent("pyvenv.cfg")
+        guard let contents = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return [:]
+        }
+
+        var values: [String: String] = [:]
+        for line in contents.split(separator: "\n") {
+            guard let separatorIndex = line.firstIndex(of: "=") else {
+                continue
+            }
+
+            let key = line[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = line[line.index(after: separatorIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            values[key] = value
+        }
+
+        return values
+    }
+
+    private func symbolicLinkDestination(for url: URL) -> URL? {
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return nil
+        }
+
+        let destinationURL = URL(fileURLWithPath: destination)
+        if destinationURL.path.hasPrefix("/") {
+            return destinationURL
+        }
+
+        return url.deletingLastPathComponent().appendingPathComponent(destination)
+    }
+
+    private func normalizePathURL(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath().standardizedFileURL
     }
 
     private func parsePayload(stdout: String) -> [String: Any]? {
