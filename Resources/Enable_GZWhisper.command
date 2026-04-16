@@ -11,11 +11,11 @@ locale_value="${GZWHISPER_UI_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}}"
 
 case "$locale_value" in
   ru*|RU*)
-    TITLE="GZWhisper: временный обход ограничений macOS (Gatekeeper/quarantine)"
+    TITLE="GZWhisper: локальная очистка quarantine для уже скопированного приложения"
     STEP1="1) Если приложения нет в /Applications, скопирует его туда (если оно рядом со скриптом)."
-    STEP2="2) Снимет quarantine-атрибут."
-    STEP3="3) Добавит приложение в локальный allow-list Gatekeeper."
-    STEP4="4) Запустит приложение."
+    STEP2="2) Снимет quarantine-атрибут только у копии приложения."
+    STEP3="3) Попробует запустить приложение."
+    STEP4="4) Если запуск все еще заблокирован, подскажет официальный путь через Privacy & Security."
 
     MSG_COPY_START="Приложение не найдено в /Applications. Копирую из DMG в /Applications..."
     MSG_COPY_FAIL="Не удалось скопировать приложение в /Applications."
@@ -24,7 +24,6 @@ case "$locale_value" in
     MSG_PATH_NOT_FOUND="Путь к приложению не найден:"
 
     MSG_REMOVE_Q="Снимаю quarantine:"
-    MSG_ADD_ALLOW="Добавляю приложение в локальный allow-list Gatekeeper"
     MSG_OPENING="Открываю приложение..."
 
     MSG_DONE_1="Готово. Если macOS все еще блокирует запуск, откройте приложение через:"
@@ -35,11 +34,11 @@ case "$locale_value" in
     ;;
 
   zh*|ZH*)
-    TITLE="GZWhisper：macOS 限制（Gatekeeper/quarantine）临时绕过工具"
+    TITLE="GZWhisper：对已复制应用执行本地 quarantine 清理"
     STEP1="1) 如果 /Applications 中没有应用，会从脚本旁边复制过去。"
-    STEP2="2) 移除 quarantine 属性。"
-    STEP3="3) 将应用加入本地 Gatekeeper 允许列表。"
-    STEP4="4) 启动应用。"
+    STEP2="2) 仅移除应用副本的 quarantine 属性。"
+    STEP3="3) 尝试启动应用。"
+    STEP4="4) 如果仍被拦截，提示使用 Privacy & Security 中的官方放行方式。"
 
     MSG_COPY_START="在 /Applications 中未找到应用。正在从 DMG 复制到 /Applications..."
     MSG_COPY_FAIL="复制应用到 /Applications 失败。"
@@ -48,7 +47,6 @@ case "$locale_value" in
     MSG_PATH_NOT_FOUND="应用路径不存在："
 
     MSG_REMOVE_Q="正在移除 quarantine："
-    MSG_ADD_ALLOW="正在将应用加入本地 Gatekeeper 允许列表"
     MSG_OPENING="正在打开应用..."
 
     MSG_DONE_1="完成。如果 macOS 仍然阻止启动，请在以下位置手动允许："
@@ -59,11 +57,11 @@ case "$locale_value" in
     ;;
 
   *)
-    TITLE="GZWhisper: temporary workaround for macOS restrictions (Gatekeeper/quarantine)"
+    TITLE="GZWhisper: local quarantine cleanup for the copied app"
     STEP1="1) If the app is missing in /Applications, copy it there (if it is next to this script)."
-    STEP2="2) Remove quarantine attribute."
-    STEP3="3) Add the app to local Gatekeeper allow-list."
-    STEP4="4) Launch the app."
+    STEP2="2) Remove quarantine from the copied app only."
+    STEP3="3) Try to launch the app."
+    STEP4="4) If it is still blocked, use the official Privacy & Security override."
 
     MSG_COPY_START="App not found in /Applications. Copying from DMG to /Applications..."
     MSG_COPY_FAIL="Failed to copy app into /Applications."
@@ -72,7 +70,6 @@ case "$locale_value" in
     MSG_PATH_NOT_FOUND="App path not found:"
 
     MSG_REMOVE_Q="Removing quarantine:"
-    MSG_ADD_ALLOW="Adding app to local Gatekeeper allow-list"
     MSG_OPENING="Opening app..."
 
     MSG_DONE_1="Done. If macOS still blocks launch, open the app via:"
@@ -120,9 +117,6 @@ fi
 echo
 echo "$MSG_REMOVE_Q $TARGET_APP"
 sudo /usr/bin/xattr -dr com.apple.quarantine "$TARGET_APP" || true
-
-echo "$MSG_ADD_ALLOW"
-sudo /usr/sbin/spctl --add --label "GZWhisper Local" "$TARGET_APP" || true
 
 echo "$MSG_OPENING"
 open "$TARGET_APP"

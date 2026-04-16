@@ -75,6 +75,7 @@ enum ProcessRunner {
         arguments: [String],
         environment: [String: String] = [:],
         currentDirectoryURL: URL? = nil,
+        onStart: ((Process) -> Void)? = nil,
         onStdoutLine: ((String) -> Void)? = nil,
         onStderrLine: ((String) -> Void)? = nil
     ) throws -> ProcessResult {
@@ -143,6 +144,7 @@ enum ProcessRunner {
             throw ProcessRunnerError.cannotLaunch(executable: executableURL.path, reason: error.localizedDescription)
         }
 
+        onStart?(process)
         process.waitUntilExit()
 
         stdoutPipe.fileHandleForReading.readabilityHandler = nil

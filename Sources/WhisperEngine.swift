@@ -70,6 +70,56 @@ enum WhisperEngineError: LocalizedError {
     }
 }
 
+enum TranscriptionCancellationError: LocalizedError {
+    case cancelled
+
+    var errorDescription: String? {
+        L10n.t("status.queueCancelled")
+    }
+}
+
+final class TranscriptionRunHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancellationRequested = false
+
+    var isCancellationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
+    }
+
+    func attach(_ process: Process) {
+        var shouldTerminate = false
+
+        lock.lock()
+        self.process = process
+        shouldTerminate = cancellationRequested
+        lock.unlock()
+
+        if shouldTerminate {
+            process.terminate()
+        }
+    }
+
+    func cancel() {
+        let process: Process?
+
+        lock.lock()
+        cancellationRequested = true
+        process = self.process
+        lock.unlock()
+
+        process?.terminate()
+    }
+
+    func clear() {
+        lock.lock()
+        process = nil
+        lock.unlock()
+    }
+}
+
 final class WhisperEngine: @unchecked Sendable {
     static let shared = WhisperEngine()
 
@@ -334,6 +384,7 @@ final class WhisperEngine: @unchecked Sendable {
     func transcribe(
         inputAudioURL: URL,
         languageCode: String?,
+        runHandle: TranscriptionRunHandle? = nil,
         status: (String) -> Void,
         onEvent: @escaping (TranscriptionEvent) -> Void
     ) throws -> TranscriptionResult {
@@ -358,7 +409,16 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         var finalPayload: [String: Any]?
-        let result = try runPythonStreaming(arguments: arguments) { line in
+        defer {
+            runHandle?.clear()
+        }
+
+        let result = try runPythonStreaming(
+            arguments: arguments,
+            onStart: { process in
+                runHandle?.attach(process)
+            }
+        ) { line in
             guard let json = self.parseJSONLine(line) else { return }
 
             if let event = json["event"] as? String {
@@ -381,6 +441,9 @@ final class WhisperEngine: @unchecked Sendable {
         let payload = finalPayload
 
         if result.exitCode != 0 || payload?["ok"] as? Bool != true {
+            if runHandle?.isCancellationRequested == true {
+                throw TranscriptionCancellationError.cancelled
+            }
             let details = payload?["details"] as? String
             let message = payload?["error"] as? String ?? result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             throw WhisperEngineError.commandFailed(message: details.map { "\(message)\n\($0)" } ?? message)
@@ -518,7 +581,11 @@ final class WhisperEngine: @unchecked Sendable {
         )
     }
 
-    private func runPythonStreaming(arguments: [String], onLine: @escaping (String) -> Void) throws -> ProcessResult {
+    private func runPythonStreaming(
+        arguments: [String],
+        onStart: ((Process) -> Void)? = nil,
+        onLine: @escaping (String) -> Void
+    ) throws -> ProcessResult {
         try ProcessRunner.runStreaming(
             executableURL: resolvedVenvPythonURL(),
             arguments: arguments,
@@ -527,6 +594,7 @@ final class WhisperEngine: @unchecked Sendable {
                 "GZWHISPER_UI_LANG": AppLanguage.current.workerCode,
             ],
             currentDirectoryURL: supportDirectory,
+            onStart: onStart,
             onStdoutLine: onLine,
             onStderrLine: nil
         )

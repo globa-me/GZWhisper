@@ -15,14 +15,52 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
-SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
-APP_VERSION="${APP_VERSION:-1.4.1}"
-APP_BUILD="${APP_BUILD:-310401}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
+ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-0}"
+APP_VERSION="${APP_VERSION:-1.4.2}"
+APP_BUILD="${APP_BUILD:-150426}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-arm64"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
 PYTHON_RUNTIME_SOURCE="${PYTHON_RUNTIME_SOURCE:-$ROOT_DIR/Resources/python}"
 WHEELHOUSE_SOURCE="${WHEELHOUSE_SOURCE:-$ROOT_DIR/Resources/wheelhouse}"
+
+detect_signing_identity() {
+  local identities
+  local detected_identity
+
+  if ! identities="$(security find-identity -v -p codesigning 2>/dev/null)"; then
+    return 1
+  fi
+
+  detected_identity="$(echo "$identities" | sed -n 's/.*"Developer ID Application: \(.*\)"/Developer ID Application: \1/p' | head -n 1)"
+  if [[ -n "$detected_identity" ]]; then
+    echo "$detected_identity"
+    return 0
+  fi
+
+  if [[ "$ALLOW_APPLE_DEVELOPMENT_FALLBACK" == "1" ]]; then
+    detected_identity="$(echo "$identities" | sed -n 's/.*"Apple Development: \(.*\)"/Apple Development: \1/p' | head -n 1)"
+    if [[ -n "$detected_identity" ]]; then
+      echo "$detected_identity"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+if [[ "$SIGNING_IDENTITY" == "auto" ]]; then
+  if AUTO_SIGNING_IDENTITY="$(detect_signing_identity)"; then
+    if [[ -n "$AUTO_SIGNING_IDENTITY" ]]; then
+      SIGNING_IDENTITY="$AUTO_SIGNING_IDENTITY"
+    else
+      SIGNING_IDENTITY="-"
+    fi
+  else
+    SIGNING_IDENTITY="-"
+  fi
+fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
@@ -139,8 +177,16 @@ PLIST
 chmod +x "$MACOS_DIR/$APP_EXECUTABLE_NAME"
 
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+  echo "Warning: building with ad-hoc signature."
+  echo "Public distribution on other Macs will require manual approval after the app is copied to /Applications."
+  echo "macOS privacy permissions like Screen Recording and System Audio may be treated as new on every update."
   codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
 else
+  echo "Signing app with identity: $SIGNING_IDENTITY"
+  if [[ "$SIGNING_IDENTITY" == Apple\ Development:* ]]; then
+    echo "Warning: Apple Development signing is for local testing on your own Macs."
+    echo "Public releases should use Developer ID Application and notarization."
+  fi
   codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP_DIR"
 fi
 

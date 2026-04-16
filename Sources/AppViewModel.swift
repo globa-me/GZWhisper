@@ -187,11 +187,19 @@ final class AppViewModel: ObservableObject {
     private var activeRecordingSession: ActiveRecordingSession?
     private var transcriptSearchCache: [String: TranscriptSearchCacheEntry] = [:]
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var activeTranscriptionRunHandle: TranscriptionRunHandle?
+    private var isQueueCancellationRequested = false
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
+    private static let largeMediaSizeThresholdBytes: Int64 = 2 * 1024 * 1024 * 1024
+    private static let longMediaDurationThresholdSeconds: Double = 60 * 60
 
     var canStartQueue: Bool {
         !isDownloadingModel && !isTranscribing && !isRecording && !isStoppingRecording && hasConnectedModel && hasQueuedItems && runtimeIssueMessage == nil
+    }
+
+    var canCancelQueue: Bool {
+        isTranscribing
     }
 
     var canDeleteModel: Bool {
@@ -247,10 +255,10 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.1"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.2"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "310401"
+        ) ?? "150426"
     }
 
     deinit {
@@ -684,8 +692,21 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        isQueueCancellationRequested = false
         isTranscribing = true
         processNextQueuedItem()
+    }
+
+    func cancelTranscriptionQueue() {
+        guard isTranscribing else {
+            return
+        }
+
+        isQueueCancellationRequested = true
+        activeTranscriptionRunHandle?.cancel()
+        activeProgressFraction = nil
+        activeETA = ""
+        statusMessage = L10n.t("status.queueCancelling")
     }
 
     func queueHistoryItemForTranscription(_ id: UUID) {
@@ -1008,6 +1029,11 @@ final class AppViewModel: ObservableObject {
     }
 
     private func processNextQueuedItem() {
+        if isQueueCancellationRequested {
+            finishQueueCancellation()
+            return
+        }
+
         guard let index = historyItems.firstIndex(where: { $0.state == .queued }) else {
             finishQueueRun()
             return
@@ -1039,6 +1065,8 @@ final class AppViewModel: ObservableObject {
         activeETA = ""
 
         let engine = self.engine
+        let runHandle = TranscriptionRunHandle()
+        activeTranscriptionRunHandle = runHandle
 
         DispatchQueue.global(qos: .userInitiated).async {
             var prepared: PreparedAudio?
@@ -1046,15 +1074,26 @@ final class AppViewModel: ObservableObject {
             do {
                 prepared = try MediaPreprocessor.prepareInput(from: sourceURL)
 
+                if runHandle.isCancellationRequested {
+                    throw TranscriptionCancellationError.cancelled
+                }
+
                 let result = try engine.transcribe(
                     inputAudioURL: prepared!.url,
-                    languageCode: languageCode
+                    languageCode: languageCode,
+                    runHandle: runHandle
                 ) { message in
                     DispatchQueue.main.async {
+                        guard !self.isQueueCancellationRequested else {
+                            return
+                        }
                         self.statusMessage = message
                     }
                 } onEvent: { event in
                     DispatchQueue.main.async {
+                        guard !self.isQueueCancellationRequested else {
+                            return
+                        }
                         self.applyTranscriptionEvent(event, itemID: itemID, startedAt: startedAt)
                     }
                 }
@@ -1074,6 +1113,7 @@ final class AppViewModel: ObservableObject {
                 try result.text.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
                 DispatchQueue.main.async {
+                    self.activeTranscriptionRunHandle = nil
                     self.finishTranscriptionSuccess(
                         itemID: itemID,
                         result: result,
@@ -1088,6 +1128,12 @@ final class AppViewModel: ObservableObject {
                 }
 
                 DispatchQueue.main.async {
+                    self.activeTranscriptionRunHandle = nil
+                    if error is TranscriptionCancellationError || self.isQueueCancellationRequested {
+                        self.restoreQueuedStateAfterCancellation(itemID: itemID)
+                        self.finishQueueCancellation()
+                        return
+                    }
                     self.finishTranscriptionFailure(itemID: itemID, error: error)
                     self.processNextQueuedItem()
                 }
@@ -1097,10 +1143,23 @@ final class AppViewModel: ObservableObject {
 
     private func finishQueueRun() {
         isTranscribing = false
+        isQueueCancellationRequested = false
+        activeTranscriptionRunHandle = nil
         currentTranscribingFileName = ""
         activeProgressFraction = nil
         activeETA = ""
         statusMessage = L10n.t("status.queueCompleted")
+    }
+
+    private func finishQueueCancellation() {
+        isTranscribing = false
+        isQueueCancellationRequested = false
+        activeTranscriptionRunHandle = nil
+        currentTranscribingFileName = ""
+        activeProgressFraction = nil
+        activeETA = ""
+        statusMessage = L10n.t("status.queueCancelled")
+        persistHistoryToDisk()
     }
 
     private func finishTranscriptionSuccess(
@@ -1161,6 +1220,17 @@ final class AppViewModel: ObservableObject {
         persistHistoryToDisk()
     }
 
+    private func restoreQueuedStateAfterCancellation(itemID: UUID) {
+        guard let index = historyItems.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        historyItems[index].state = .queued
+        historyItems[index].errorMessage = nil
+        historyItems[index].progressFraction = nil
+        historyItems[index].etaSeconds = nil
+    }
+
     private func applyTranscriptionEvent(_ event: TranscriptionEvent, itemID: UUID, startedAt: Date) {
         guard let index = historyItems.firstIndex(where: { $0.id == itemID }) else {
             return
@@ -1204,13 +1274,19 @@ final class AppViewModel: ObservableObject {
         }
 
         let now = Date()
+        var largeMediaCount = 0
 
         for (offset, url) in supported.enumerated() {
+            let durationSeconds = mediaDurationSeconds(for: url)
+            if Self.isHeavyMediaFile(url, durationSeconds: durationSeconds) {
+                largeMediaCount += 1
+            }
+
             let item = TranscriptHistoryItem(
                 sourceFileName: url.lastPathComponent,
                 sourceFilePath: url.path,
                 createdAt: now.addingTimeInterval(Double(offset) * 0.001),
-                mediaDurationSeconds: mediaDurationSeconds(for: url),
+                mediaDurationSeconds: durationSeconds,
                 state: .queued,
                 isRuntimeOnly: true
             )
@@ -1218,7 +1294,11 @@ final class AppViewModel: ObservableObject {
             selectedHistoryItemID = item.id
         }
 
-        statusMessage = L10n.f("status.filesAdded", supported.count)
+        if largeMediaCount > 0 {
+            statusMessage = L10n.f("status.filesAddedLargeWarning", supported.count, largeMediaCount)
+        } else {
+            statusMessage = L10n.f("status.filesAdded", supported.count)
+        }
         sortHistoryByDateDesc()
     }
 
@@ -1257,6 +1337,21 @@ final class AppViewModel: ObservableObject {
         let minutes = (total % 3600) / 60
         let seconds = total % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+    }
+
+    private static func isHeavyMediaFile(_ url: URL, durationSeconds: Double?) -> Bool {
+        if let durationSeconds, durationSeconds >= longMediaDurationThresholdSeconds {
+            return true
+        }
+
+        guard
+            let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+            fileSize > 0
+        else {
+            return false
+        }
+
+        return Int64(fileSize) >= largeMediaSizeThresholdBytes
     }
 
     private var transcriptsDirectoryURL: URL {

@@ -4,13 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
-APP_TITLE="${APP_TITLE:-GZWhisper 1.4.1}"
+APP_TITLE="${APP_TITLE:-GZWhisper 1.4.2}"
 APP_BUNDLE="$APP_BUNDLE_NAME.app"
 APP_PATH="$BUILD_DIR/$APP_BUNDLE"
-DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.4.1}"
+DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.4.2}"
 DMG_PATH="$BUILD_DIR/${DMG_NAME}.dmg"
 TEMP_DMG="$BUILD_DIR/${DMG_NAME}-temp.dmg"
-VOL_NAME="${VOL_NAME:-GZWhisper 1.4.1 Installer}"
+VOL_NAME="${VOL_NAME:-GZWhisper 1.4.2 Installer}"
 STAGING_DIR="$BUILD_DIR/dmg-staging"
 BG_DIR="$STAGING_DIR/.background"
 BG_PATH="$BG_DIR/background.png"
@@ -21,6 +21,8 @@ BYPASS_SCRIPT_DST="$STAGING_DIR/$BYPASS_SCRIPT_NAME"
 INSTRUCTIONS_PATH="$STAGING_DIR/Install_Instructions.txt"
 TERMINAL_FIX_PATH="$STAGING_DIR/Run_If_Blocked.txt"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
+NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
+NOTARY_TIMEOUT="${NOTARY_TIMEOUT:-20m}"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "App not found: $APP_PATH"
@@ -33,6 +35,25 @@ if [[ ! -f "$BYPASS_SCRIPT_SRC" ]]; then
   exit 1
 fi
 
+APP_AUTHORITY="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n 's/^Authority=//p' | head -n 1 || true)"
+APP_ASSESSMENT="$(spctl -a -vv "$APP_PATH" 2>&1 || true)"
+
+if [[ "$APP_AUTHORITY" == Developer\ ID\ Application:* ]]; then
+  echo "App signing identity: $APP_AUTHORITY"
+elif [[ "$APP_AUTHORITY" == Apple\ Development:* ]]; then
+  echo "Warning: app is signed with Apple Development."
+  echo "This is suitable for local testing only; public releases should use Developer ID Application + notarization."
+else
+  echo "Warning: app is not signed with Developer ID Application."
+fi
+
+if [[ "$APP_ASSESSMENT" != *": accepted"* ]]; then
+  echo "Gatekeeper assessment on this Mac:"
+  echo "$APP_ASSESSMENT"
+  echo "Unsigned or development-signed builds are better distributed as ZIP archives."
+  echo "Users should move the app to /Applications, then use right-click Open or Privacy & Security -> Open Anyway."
+fi
+
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR" "$BG_DIR"
 mkdir -p "$MODULE_CACHE_DIR"
@@ -42,8 +63,9 @@ export CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR"
 rm -f "$DMG_PATH" "$TEMP_DMG"
 
 cp -R "$APP_PATH" "$STAGING_DIR/$APP_BUNDLE"
-cp "$BYPASS_SCRIPT_SRC" "$BYPASS_SCRIPT_DST"
+ditto --noextattr --noqtn "$BYPASS_SCRIPT_SRC" "$BYPASS_SCRIPT_DST"
 chmod +x "$BYPASS_SCRIPT_DST"
+xattr -c "$BYPASS_SCRIPT_DST" 2>/dev/null || true
 ln -s /Applications "$STAGING_DIR/Applications"
 
 cat > "$INSTRUCTIONS_PATH" <<'TEXT'
@@ -54,13 +76,14 @@ Install GZWhisper:
 3. Open __APP_BUNDLE_NAME__ from Applications.
 
 If macOS blocks launch (recommended fix):
-1. Open System Settings -> Privacy & Security.
-2. Scroll down and click Open Anyway for __APP_BUNDLE_NAME__.
-3. Confirm with your Mac password or Touch ID.
-4. Launch __APP_BUNDLE_NAME__ again.
+1. In Applications, right-click __APP_BUNDLE_NAME__ and choose Open.
+2. If needed, open System Settings -> Privacy & Security.
+3. Scroll down and click Open Anyway for __APP_BUNDLE_NAME__.
+4. Confirm with your Mac password or Touch ID.
+5. Launch __APP_BUNDLE_NAME__ again.
 
 Alternative fix:
-Run Enable_GZWhisper.command once, enter your password, then launch again.
+Run Enable_GZWhisper.command once after the app has been copied to Applications.
 TEXT
 sed -i '' "s/__APP_BUNDLE__/$APP_BUNDLE/g; s/__APP_BUNDLE_NAME__/$APP_BUNDLE_NAME/g" "$INSTRUCTIONS_PATH"
 
@@ -77,10 +100,7 @@ If Enable_GZWhisper.command is blocked too:
 
 1) Open Terminal.
 2) Run:
-sudo xattr -dr com.apple.quarantine "/Volumes/__VOL_NAME__"
-sudo xattr -dr com.apple.quarantine "/Volumes/__VOL_NAME__/Enable_GZWhisper.command"
 sudo xattr -dr com.apple.quarantine "/Applications/__APP_BUNDLE__"
-sudo spctl --add --label "GZWhisper Local" "/Applications/__APP_BUNDLE__"
 open "/Applications/__APP_BUNDLE__"
 TEXT
 sed -i '' "s/__VOL_NAME__/$VOL_NAME/g; s/__APP_BUNDLE__/$APP_BUNDLE/g; s/__APP_BUNDLE_NAME__/$APP_BUNDLE_NAME/g" "$TERMINAL_FIX_PATH"
@@ -212,8 +232,20 @@ hdiutil convert "$TEMP_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" >
 rm -f "$TEMP_DMG"
 rm -rf "$STAGING_DIR"
 
-cp "$BYPASS_SCRIPT_SRC" "$BUILD_DIR/$BYPASS_SCRIPT_NAME"
+ditto --noextattr --noqtn "$BYPASS_SCRIPT_SRC" "$BUILD_DIR/$BYPASS_SCRIPT_NAME"
 chmod +x "$BUILD_DIR/$BYPASS_SCRIPT_NAME"
+xattr -c "$BUILD_DIR/$BYPASS_SCRIPT_NAME" 2>/dev/null || true
+
+if [[ -n "$NOTARYTOOL_PROFILE" ]]; then
+  if [[ "$APP_AUTHORITY" != Developer\ ID\ Application:* ]]; then
+    echo "Skipping notarization: Developer ID Application signing is required."
+  else
+    echo "Submitting DMG for notarization with profile: $NOTARYTOOL_PROFILE"
+    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait --timeout "$NOTARY_TIMEOUT"
+    xcrun stapler staple "$DMG_PATH"
+    xcrun stapler validate "$DMG_PATH"
+  fi
+fi
 
 echo "Created DMG: $DMG_PATH"
 echo "Standalone bypass script: $BUILD_DIR/$BYPASS_SCRIPT_NAME"

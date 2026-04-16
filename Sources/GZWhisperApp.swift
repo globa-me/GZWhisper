@@ -334,15 +334,15 @@ struct ContentView: View {
 
                 Spacer(minLength: 8)
 
-                Button(action: viewModel.transcribeAllQueuedFiles) {
+                Button(action: viewModel.isTranscribing ? viewModel.cancelTranscriptionQueue : viewModel.transcribeAllQueuedFiles) {
                     Label(
-                        viewModel.isTranscribing ? L10n.t("button.transcribingAll") : L10n.t("button.transcribeAll"),
-                        systemImage: "waveform.badge.magnifyingglass"
+                        viewModel.isTranscribing ? L10n.t("button.cancelQueue") : L10n.t("button.transcribeAll"),
+                        systemImage: viewModel.isTranscribing ? "xmark.circle.fill" : "waveform.badge.magnifyingglass"
                     )
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color(red: 0.05, green: 0.45, blue: 0.35))
-                .disabled(!viewModel.canStartQueue)
+                .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
+                .disabled(viewModel.isTranscribing ? !viewModel.canCancelQueue : !viewModel.canStartQueue)
             }
 
             HStack(spacing: 10) {

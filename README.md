@@ -36,7 +36,7 @@ Download the latest release files:
 - [Latest DMG: GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
 - [Latest ZIP: GZWhisper-macOS.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS.zip)
 
-Direct version links:
+Published release links:
 
 - [v1.4.1 (current): GZWhisper-Installer-1.4.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.4.1/GZWhisper-Installer-1.4.1.dmg)
 - [v1.4.1 (current): GZWhisper-macOS-1.4.1.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.4.1/GZWhisper-macOS-1.4.1.zip)
@@ -45,11 +45,22 @@ Direct version links:
 - [v1.2.0 (legacy): GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.2.0/GZWhisper-Installer.dmg)
 - [v1.1.0 (legacy, no recording): GZWhisper-Installer-1.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.1.0/GZWhisper-Installer-1.1.dmg)
 
+Current source tree version in this repository: `v1.4.2` (`build 150426`).
+
 Install:
 
 1. Open `GZWhisper-Installer.dmg` (or versioned `GZWhisper-Installer-1.4.1.dmg`).
 2. Drag `GZWhisper.app` to `Applications`.
-3. Launch the app from `Applications`. If macOS blocks the app, open `Run_If_Blocked.txt` from the DMG.
+3. Eject the installer image.
+4. Launch the app from `Applications`.
+
+If macOS blocks the app:
+
+1. In `Applications`, right-click `GZWhisper.app` and choose `Open`.
+2. If needed, go to `System Settings -> Privacy & Security` and click `Open Anyway`.
+3. Use `Enable_GZWhisper.command` only as a local cleanup helper for the copied app in `Applications`.
+
+For unsigned or non-notarized builds distributed to other Macs, prefer the ZIP archive over the DMG. The hidden Gatekeeper `Anywhere` flow is not a stable install path on current macOS versions.
 
 ## Quick Start (Linux)
 
@@ -143,21 +154,38 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.4.1.dmg`
+Output: `build/GZWhisper-Installer-1.4.2.dmg`
 
 Optional version/build override for release builds:
 
 ```bash
-APP_VERSION=1.4.1 APP_BUILD=310401 ./scripts/build_app.sh
+APP_VERSION=1.4.2 APP_BUILD=150426 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
 ```
+
+Signing behavior:
+
+- `./scripts/build_app.sh` now tries to auto-detect a signing identity.
+- Preferred: `Developer ID Application` for public builds and permission persistence across updates.
+- By default, if no `Developer ID Application` is available, the script falls back to ad-hoc signing.
+- `Apple Development` is only for local developer installs on your own Mac and is opt-in via `ALLOW_APPLE_DEVELOPMENT_FALLBACK=1`.
+- Explicit ad-hoc signing is still available with `SIGNING_IDENTITY=-`, but macOS may treat privacy permissions like Screen Recording and System Audio as new on every update.
+
+Optional notarization for public DMG builds:
+
+```bash
+APP_VERSION=1.4.2 APP_BUILD=150426 ./scripts/build_app.sh
+NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
+```
+
+`NOTARYTOOL_PROFILE` must point to credentials previously stored with `xcrun notarytool store-credentials`, and notarization should only be used together with a `Developer ID Application` signed app.
 
 `APP_BUILD` uses a date code in `DDMMYY` format.
 
 The shipped macOS app now keeps the stable install name and bundle id so dragging a new release into `Applications` updates the previous app in place:
 - app bundle: `build/GZWhisper.app`
 - bundle id: `com.gzakharov.gzwhisper`
-- installer: `build/GZWhisper-Installer-1.4.1.dmg`
+- installer: `build/GZWhisper-Installer-1.4.2.dmg`
 
 If you need a non-versioned installer filename and volume title for release publishing, override:
 
@@ -198,7 +226,13 @@ Output: `build/GZWhisper.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS-1.4.1.zip`
+Output: `build/GZWhisper-macOS-1.4.2.zip`
+
+The ZIP now includes:
+- `GZWhisper.app`
+- `Install_Instructions.txt`
+- `Run_If_Blocked.txt`
+- `Enable_GZWhisper.command`
 
 ### 4) Build DMG installer
 
@@ -206,7 +240,7 @@ Output: `build/GZWhisper-macOS-1.4.1.zip`
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.4.1.dmg`
+Output: `build/GZWhisper-Installer-1.4.2.dmg`
 
 # First run (all platforms)
 
@@ -231,6 +265,14 @@ Output: `build/GZWhisper-Installer-1.4.1.dmg`
 - `scripts/` — build, package, install, uninstall scripts.
 
 ## Changelog
+
+### 2026-04-15 (v1.4.2, build 150426)
+
+- Added queue cancellation for macOS transcription runs.
+- Warns when newly added media files are especially large or long-running.
+- Updated macOS packaging defaults and output names to `v1.4.2`.
+- Improved signing, ZIP/DMG packaging, and notarization guidance for public macOS builds.
+- Simplified `Enable_GZWhisper.command` so it cleans the copied app locally instead of changing Gatekeeper policy.
 
 ### 2026-04-01 (v1.4.1, build 310401)
 
