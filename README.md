@@ -125,7 +125,8 @@ GZWhisper.exe
 
 Notes:
 - No installer is required.
-- For video transcription, place `ffmpeg.exe` next to `GZWhisper.exe` or add it to `PATH`.
+- Current portable builds bundle `ffmpeg.exe` by default for video transcription.
+- If you build with `-SkipBundledFfmpeg`, place `ffmpeg.exe` next to `GZWhisper.exe` or add it to `PATH`.
 - See the full Windows user guide: [`docs/WINDOWS_PORTABLE.md`](docs/WINDOWS_PORTABLE.md)
 
 ### Build Windows portable package (on Windows host)
@@ -133,6 +134,8 @@ Notes:
 ```powershell
 .\scripts\package_windows_portable.ps1
 ```
+
+The script now auto-detects a working local Python, bundles `ffmpeg.exe` into the portable folder by default, and copies the ffmpeg license file alongside it.
 
 Or:
 
@@ -143,6 +146,13 @@ scripts\package_windows_portable.cmd
 Output:
 - `build/GZWhisper-windows-portable/`
 - `build/GZWhisper-windows-portable.zip`
+
+Optional:
+
+```powershell
+.\scripts\package_windows_portable.ps1 -FfmpegExe "C:\tools\ffmpeg\bin\ffmpeg.exe"
+.\scripts\package_windows_portable.ps1 -SkipBundledFfmpeg
+```
 
 ## Maintainer: Build Release DMG (macOS)
 

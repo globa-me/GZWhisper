@@ -7,7 +7,9 @@ __pycache__/
 .venv/
 
 # Build artifacts
-build/
+build/*
+!build/GZWhisper-windows-portable/
+!build/GZWhisper-windows-portable/**
 Resources/Python.framework/
 Resources/python/
 Resources/wheelhouse/

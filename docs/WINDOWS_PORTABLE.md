@@ -31,8 +31,10 @@ Important:
 
 For video files (`.mp4`, `.mkv`, `.mov`, etc.), `ffmpeg.exe` is required.
 
-Options:
-- Place `ffmpeg.exe` in the same folder as `GZWhisper.exe` (recommended).
+Current portable builds created with `scripts\package_windows_portable.ps1` bundle `ffmpeg.exe` by default.
+
+The app looks for ffmpeg in this order:
+- `ffmpeg.exe` next to `GZWhisper.exe` (recommended).
 - Or install ffmpeg and ensure it is available in `PATH`.
 
 If ffmpeg is missing, video transcription will fail with an explicit error, while audio-only files still work.
@@ -47,7 +49,7 @@ If ffmpeg is missing, video transcription will fail with an explicit error, whil
 
 1. Close GZWhisper.
 2. Download and extract the new portable ZIP into a new folder.
-3. Optionally copy your `ffmpeg.exe` into the new folder.
+3. If you are updating from an older portable build, optionally copy your own `ffmpeg.exe` only when the new package was built without bundled ffmpeg.
 4. Run the new `GZWhisper.exe`.
 
 Your models/transcripts/history remain in your user profile folders and are not tied to a specific app folder.
@@ -68,6 +70,7 @@ If Windows SmartScreen warns on first run:
 ### "ffmpeg is required"
 
 - Ensure `ffmpeg.exe` exists next to `GZWhisper.exe` or is in `PATH`.
+- If the package was built by the current maintainer script, confirm that antivirus did not remove the bundled `ffmpeg.exe`.
 - Reopen the app after adding ffmpeg.
 
 ### App fails to start after moving files
@@ -83,16 +86,24 @@ From project root:
 .\scripts\package_windows_portable.ps1
 ```
 
+This script auto-detects a working Python installation, bundles `ffmpeg.exe` into the portable folder by default, and copies the ffmpeg license file next to it.
+
 Alternative:
 
 ```cmd
 scripts\package_windows_portable.cmd
 ```
 
-Optional (bundle ffmpeg into output folder):
+Optional (use a specific ffmpeg build):
 
 ```powershell
 .\scripts\package_windows_portable.ps1 -FfmpegExe "C:\tools\ffmpeg\bin\ffmpeg.exe"
+```
+
+Optional (skip bundling ffmpeg entirely):
+
+```powershell
+.\scripts\package_windows_portable.ps1 -SkipBundledFfmpeg
 ```
 
 Build outputs:

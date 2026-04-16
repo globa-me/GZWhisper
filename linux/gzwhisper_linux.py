@@ -450,6 +450,41 @@ def find_worker_template() -> Path:
     raise FileNotFoundError(tr(detect_ui_lang(), "error_worker_missing"))
 
 
+def find_ffmpeg_executable() -> str | None:
+    candidates: list[Path] = []
+
+    current_dir = Path(__file__).resolve().parent
+    executable_dir = Path(sys.executable).resolve().parent if getattr(sys, "executable", "") else current_dir
+    meipass_dir_raw = getattr(sys, "_MEIPASS", "")
+    meipass_dir = Path(meipass_dir_raw) if meipass_dir_raw else None
+
+    if IS_WINDOWS:
+        candidates.extend(
+            [
+                executable_dir / "ffmpeg.exe",
+                current_dir / "ffmpeg.exe",
+                current_dir.parent / "ffmpeg.exe",
+            ]
+        )
+        if meipass_dir is not None:
+            candidates.extend(
+                [
+                    meipass_dir / "ffmpeg.exe",
+                    meipass_dir / "Resources" / "ffmpeg.exe",
+                ]
+            )
+    else:
+        candidates.extend([current_dir / "ffmpeg", executable_dir / "ffmpeg"])
+
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+
+    if IS_WINDOWS:
+        return shutil.which("ffmpeg.exe") or shutil.which("ffmpeg")
+    return shutil.which("ffmpeg")
+
+
 def format_bytes(num_bytes: int) -> str:
     step = 1024.0
     units = ["B", "KB", "MB", "GB", "TB"]
@@ -1312,7 +1347,7 @@ class GZWhisperLinuxApp(tk.Tk):
         return None
 
     def _extract_audio_with_ffmpeg(self, source: Path) -> Path:
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = find_ffmpeg_executable()
         if not ffmpeg:
             raise RuntimeError(self.t("error_ffmpeg_required"))
 
