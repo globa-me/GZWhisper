@@ -1,6 +1,6 @@
 # GZWhisper
 
-GZWhisper is a local-first speech app for transcription of audio/video files.
+GZWhisper is a local-first speech app for transcription of audio/video files. Stable n **tested ONLY on macOS**, Windows version is partially working, but needed to be fixed and properly tested
 
 This repository includes desktop apps for three platforms:
 - `macOS` app (SwiftUI): `Sources/`
