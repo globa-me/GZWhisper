@@ -16,7 +16,7 @@ FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
-ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-0}"
+ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-1}"
 APP_VERSION="${APP_VERSION:-1.4.2}"
 APP_BUILD="${APP_BUILD:-150426}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
@@ -24,6 +24,7 @@ APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-arm64"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
 PYTHON_RUNTIME_SOURCE="${PYTHON_RUNTIME_SOURCE:-$ROOT_DIR/Resources/python}"
 WHEELHOUSE_SOURCE="${WHEELHOUSE_SOURCE:-$ROOT_DIR/Resources/wheelhouse}"
+ENTITLEMENTS_FILE="${ENTITLEMENTS_FILE:-$ROOT_DIR/Resources/GZWhisper.entitlements}"
 
 detect_signing_identity() {
   local identities
@@ -58,6 +59,8 @@ if [[ "$SIGNING_IDENTITY" == "auto" ]]; then
       SIGNING_IDENTITY="-"
     fi
   else
+    echo "Warning: no usable signing identity was selected."
+    echo "Falling back to ad-hoc signing. macOS may ask for privacy permissions again after each update."
     SIGNING_IDENTITY="-"
   fi
 fi
@@ -180,14 +183,14 @@ if [[ "$SIGNING_IDENTITY" == "-" ]]; then
   echo "Warning: building with ad-hoc signature."
   echo "Public distribution on other Macs will require manual approval after the app is copied to /Applications."
   echo "macOS privacy permissions like Screen Recording and System Audio may be treated as new on every update."
-  codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+  codesign --force --deep --entitlements "$ENTITLEMENTS_FILE" --sign - "$APP_DIR" >/dev/null 2>&1 || true
 else
   echo "Signing app with identity: $SIGNING_IDENTITY"
   if [[ "$SIGNING_IDENTITY" == Apple\ Development:* ]]; then
     echo "Warning: Apple Development signing is for local testing on your own Macs."
     echo "Public releases should use Developer ID Application and notarization."
   fi
-  codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP_DIR"
+  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS_FILE" --timestamp --sign "$SIGNING_IDENTITY" "$APP_DIR"
 fi
 
 echo "Built app: $APP_DIR"

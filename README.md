@@ -144,6 +144,16 @@ Output:
 - `build/GZWhisper-windows-portable/`
 - `build/GZWhisper-windows-portable.zip`
 
+### Maintainer: repository safety check
+
+Run this before merging release or packaging changes:
+
+```bash
+./scripts/check_repo_security.sh
+```
+
+It checks that generated `build/` artifacts are not tracked, scans tracked source files for obvious secrets, blocks Gatekeeper allow-list mutations, and validates shell script syntax.
+
 ## Maintainer: Build Release DMG (macOS)
 
 This section is for maintainers preparing release artifacts.
@@ -167,8 +177,8 @@ Signing behavior:
 
 - `./scripts/build_app.sh` now tries to auto-detect a signing identity.
 - Preferred: `Developer ID Application` for public builds and permission persistence across updates.
-- By default, if no `Developer ID Application` is available, the script falls back to ad-hoc signing.
-- `Apple Development` is only for local developer installs on your own Mac and is opt-in via `ALLOW_APPLE_DEVELOPMENT_FALLBACK=1`.
+- By default, if no `Developer ID Application` is available, the script uses `Apple Development` when present.
+- `Apple Development` is used automatically for local developer installs when `Developer ID Application` is unavailable; set `ALLOW_APPLE_DEVELOPMENT_FALLBACK=0` to force ad-hoc fallback.
 - Explicit ad-hoc signing is still available with `SIGNING_IDENTITY=-`, but macOS may treat privacy permissions like Screen Recording and System Audio as new on every update.
 
 Optional notarization for public DMG builds:

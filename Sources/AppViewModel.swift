@@ -189,6 +189,7 @@ final class AppViewModel: ObservableObject {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var activeTranscriptionRunHandle: TranscriptionRunHandle?
     private var isQueueCancellationRequested = false
+    private let historyPersistenceQueue = DispatchQueue(label: "com.gzwhisper.history.persistence", qos: .utility)
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
     private static let largeMediaSizeThresholdBytes: Int64 = 2 * 1024 * 1024 * 1024
@@ -262,6 +263,7 @@ final class AppViewModel: ObservableObject {
     }
 
     deinit {
+        historyPersistenceQueue.sync {}
         recordingTimer?.invalidate()
         let notificationCenter = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
@@ -1450,12 +1452,19 @@ final class AppViewModel: ObservableObject {
             return copy
         }
 
-        do {
-            try FileManager.default.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(persisted)
-            try data.write(to: historyFileURL, options: .atomic)
-        } catch {
-            statusMessage = error.localizedDescription
+        let directoryURL = transcriptsDirectoryURL
+        let fileURL = historyFileURL
+
+        historyPersistenceQueue.async {
+            do {
+                try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                let data = try JSONEncoder().encode(persisted)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    self?.statusMessage = error.localizedDescription
+                }
+            }
         }
     }
 

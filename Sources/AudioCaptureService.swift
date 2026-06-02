@@ -132,7 +132,7 @@ final class AudioCaptureService: NSObject {
     ) async throws {
         try await requestPermissions(for: mode)
 
-        try syncQueueThrows {
+        try await asyncQueueThrows { [self] in
             guard state == .idle else {
                 throw AudioCaptureServiceError.alreadyRecording
             }
@@ -164,14 +164,14 @@ final class AudioCaptureService: NSObject {
 
         do {
             if mode.includesSystemAudio {
-                try syncQueueThrows {
+                try await asyncQueueThrows { [self] in
                     try setupWriter(for: .system)
                 }
                 try await startSystemCaptureIfNeeded()
             }
 
             if mode.includesMicrophone {
-                try syncQueueThrows {
+                try await asyncQueueThrows { [self] in
                     try setupWriter(for: .microphone)
                     try startMicrophoneCapture()
                 }
@@ -206,7 +206,7 @@ final class AudioCaptureService: NSObject {
     }
 
     func stop() async throws -> CaptureResult {
-        let snapshot = try syncQueueThrows { () -> (RecordingInputMode, URL) in
+        let snapshot = try await asyncQueueThrows { [self] () -> (RecordingInputMode, URL) in
             guard state == .recording || state == .paused else {
                 throw AudioCaptureServiceError.notRecording
             }
@@ -231,8 +231,8 @@ final class AudioCaptureService: NSObject {
             throw captureError
         }
 
-        let systemURL = try finishWriter(for: .system)
-        let microphoneURL = try finishWriter(for: .microphone)
+        let systemURL = try await finishWriter(for: .system)
+        let microphoneURL = try await finishWriter(for: .microphone)
 
         let finalURL = try await exportFinalFile(
             mode: snapshot.0,
@@ -240,10 +240,12 @@ final class AudioCaptureService: NSObject {
             systemURL: systemURL,
             microphoneURL: microphoneURL
         )
-        cleanupTempFiles(except: finalURL)
-
-        let duration = durationForMedia(at: finalURL)
-        resetToIdle()
+        let duration = try await asyncQueueThrows { [self] () -> Double in
+            cleanupTempFiles(except: finalURL)
+            let duration = durationForMedia(at: finalURL)
+            resetToIdle()
+            return duration
+        }
         return CaptureResult(audioURL: finalURL, durationSeconds: duration, mode: snapshot.0)
     }
 
@@ -254,10 +256,12 @@ final class AudioCaptureService: NSObject {
         }
 
         try await stopSources()
-        _ = try finishWriter(for: .system)
-        _ = try finishWriter(for: .microphone)
-        cleanupTempFiles(except: nil)
-        resetToIdle()
+        _ = try await finishWriter(for: .system)
+        _ = try await finishWriter(for: .microphone)
+        await asyncQueue { [self] in
+            cleanupTempFiles(except: nil)
+            resetToIdle()
+        }
     }
 
     private func setupWriter(for source: CaptureSource) throws {
@@ -399,7 +403,7 @@ final class AudioCaptureService: NSObject {
             }
         }
 
-        syncQueue {
+        await asyncQueue { [self] in
             if let microphoneOutput {
                 microphoneOutput.setSampleBufferDelegate(nil, queue: nil)
             }
@@ -409,8 +413,8 @@ final class AudioCaptureService: NSObject {
         }
     }
 
-    private func finishWriter(for source: CaptureSource) throws -> URL? {
-        let payload = syncQueue { () -> (AVAssetWriter, AVAssetWriterInput, URL, Bool)? in
+    private func finishWriter(for source: CaptureSource) async throws -> URL? {
+        let payload = await asyncQueue { [self] () -> (AVAssetWriter, AVAssetWriterInput, URL, Bool)? in
             switch source {
             case .system:
                 guard let writer = systemWriter, let input = systemWriterInput, let url = systemTempURL else {
@@ -440,22 +444,18 @@ final class AudioCaptureService: NSObject {
         }
 
         input.markAsFinished()
-        let semaphore = DispatchSemaphore(value: 0)
-        var completionError: Error?
         let writerBox = UncheckedSendableBox(writer)
 
-        writer.finishWriting {
-            let writer = writerBox.value
-            if writer.status != .completed {
-                let message = writer.error?.localizedDescription ?? "Unknown writer error"
-                completionError = AudioCaptureServiceError.writerFailed(message)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            writerBox.value.finishWriting {
+                let writer = writerBox.value
+                if writer.status == .completed {
+                    continuation.resume()
+                } else {
+                    let message = writer.error?.localizedDescription ?? "Unknown writer error"
+                    continuation.resume(throwing: AudioCaptureServiceError.writerFailed(message))
+                }
             }
-            semaphore.signal()
-        }
-        semaphore.wait()
-
-        if let completionError {
-            throw completionError
         }
 
         return url
@@ -467,29 +467,31 @@ final class AudioCaptureService: NSObject {
         systemURL: URL?,
         microphoneURL: URL?
     ) async throws -> URL {
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
+        try await asyncQueueThrows { [self] in
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
 
-        switch mode {
-        case .systemOnly:
-            guard let systemURL else {
-                throw AudioCaptureServiceError.emptyRecording
+            switch mode {
+            case .systemOnly:
+                guard let systemURL else {
+                    throw AudioCaptureServiceError.emptyRecording
+                }
+                try FileManager.default.moveItem(at: systemURL, to: destinationURL)
+                return destinationURL
+            case .microphoneOnly:
+                guard let microphoneURL else {
+                    throw AudioCaptureServiceError.emptyRecording
+                }
+                try FileManager.default.moveItem(at: microphoneURL, to: destinationURL)
+                return destinationURL
+            case .systemAndMicrophone:
+                guard let systemURL, let microphoneURL else {
+                    throw AudioCaptureServiceError.emptyRecording
+                }
+                try mergeAudioFiles(first: systemURL, second: microphoneURL, outputURL: destinationURL)
+                return destinationURL
             }
-            try FileManager.default.moveItem(at: systemURL, to: destinationURL)
-            return destinationURL
-        case .microphoneOnly:
-            guard let microphoneURL else {
-                throw AudioCaptureServiceError.emptyRecording
-            }
-            try FileManager.default.moveItem(at: microphoneURL, to: destinationURL)
-            return destinationURL
-        case .systemAndMicrophone:
-            guard let systemURL, let microphoneURL else {
-                throw AudioCaptureServiceError.emptyRecording
-            }
-            try mergeAudioFiles(first: systemURL, second: microphoneURL, outputURL: destinationURL)
-            return destinationURL
         }
     }
 
@@ -616,10 +618,19 @@ final class AudioCaptureService: NSObject {
 
     private func requestPermissions(for mode: RecordingInputMode) async throws {
         if mode.includesMicrophone {
-            let granted = await withCheckedContinuation { continuation in
-                AVCaptureDevice.requestAccess(for: .audio) { continuation.resume(returning: $0) }
-            }
-            if !granted {
+            switch AVCaptureDevice.authorizationStatus(for: .audio) {
+            case .authorized:
+                break
+            case .notDetermined:
+                let granted = await withCheckedContinuation { continuation in
+                    AVCaptureDevice.requestAccess(for: .audio) { continuation.resume(returning: $0) }
+                }
+                if !granted {
+                    throw AudioCaptureServiceError.microphoneAccessDenied
+                }
+            case .denied, .restricted:
+                throw AudioCaptureServiceError.microphoneAccessDenied
+            @unknown default:
                 throw AudioCaptureServiceError.microphoneAccessDenied
             }
         }
@@ -763,6 +774,30 @@ final class AudioCaptureService: NSObject {
             result = Result { try block() }
         }
         return try result!.get()
+    }
+
+    private func asyncQueue<T>(_ block: @escaping () -> T) async -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return block()
+        }
+
+        return await withCheckedContinuation { continuation in
+            captureQueue.async {
+                continuation.resume(returning: block())
+            }
+        }
+    }
+
+    private func asyncQueueThrows<T>(_ block: @escaping () throws -> T) async throws -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return try block()
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            captureQueue.async {
+                continuation.resume(with: Result { try block() })
+            }
+        }
     }
 
     private let queueKey = DispatchSpecificKey<Void>()
