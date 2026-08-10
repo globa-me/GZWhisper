@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var isHistoryVisible = true
     @State private var isDropTargeted = false
     @State private var historySearchText = ""
+    @State private var selectedQueueItemIDs: Set<UUID> = []
     @State private var editingHistoryItemID: UUID?
     @State private var historyRenameDraft = ""
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
@@ -108,6 +109,86 @@ struct ContentView: View {
             return "\(filteredHistoryItems.count)/\(viewModel.historyCount)"
         }
         return "\(viewModel.historyCount)"
+    }
+
+    private var primaryQueueButtonTitle: String {
+        if viewModel.isTranscribing {
+            return L10n.t("button.cancelQueue")
+        }
+        if viewModel.isQueuePaused {
+            return L10n.t("button.resumeQueue")
+        }
+        return L10n.t("button.transcribeAll")
+    }
+
+    private var primaryQueueButtonIcon: String {
+        if viewModel.isTranscribing {
+            return "xmark.circle.fill"
+        }
+        if viewModel.isQueuePaused {
+            return "play.circle.fill"
+        }
+        return "waveform.badge.magnifyingglass"
+    }
+
+    private var canUsePrimaryQueueButton: Bool {
+        if viewModel.isTranscribing {
+            return viewModel.canCancelQueue
+        }
+        if viewModel.isQueuePaused {
+            return viewModel.canResumeQueue
+        }
+        return viewModel.canStartQueue
+    }
+
+    private var selectedQueueRunTargetIDs: Set<UUID> {
+        let checkedIDs = selectedQueueItemIDs.filter { id in
+            guard let item = viewModel.historyItems.first(where: { $0.id == id }) else {
+                return false
+            }
+            return viewModel.canRunHistoryItem(item)
+        }
+
+        if !checkedIDs.isEmpty {
+            return Set(checkedIDs)
+        }
+
+        if let selectedItem = viewModel.selectedHistoryItem, viewModel.canRunHistoryItem(selectedItem) {
+            return [selectedItem.id]
+        }
+
+        return []
+    }
+
+    private var canTranscribeSelectedQueueTargets: Bool {
+        !viewModel.isDownloadingModel
+            && !viewModel.isTranscribing
+            && !viewModel.isRecording
+            && !viewModel.isStoppingRecording
+            && viewModel.hasConnectedModel
+            && viewModel.runtimeIssueMessage == nil
+            && !selectedQueueRunTargetIDs.isEmpty
+    }
+
+    private func primaryQueueAction() {
+        if viewModel.isTranscribing {
+            viewModel.cancelTranscriptionQueue()
+        } else if viewModel.isQueuePaused {
+            viewModel.resumeQueue()
+        } else {
+            viewModel.transcribeAllQueuedFiles()
+        }
+    }
+
+    private func transcribeSelectedQueueTargets() {
+        let ids = selectedQueueRunTargetIDs
+        guard !ids.isEmpty else {
+            viewModel.transcribeSelectedHistoryItem()
+            return
+        }
+
+        viewModel.transcribeHistoryItemsNow(ids)
+        selectedQueueItemIDs.subtract(ids)
     }
 
     var body: some View {
@@ -334,15 +415,48 @@ struct ContentView: View {
 
                 Spacer(minLength: 8)
 
-                Button(action: viewModel.isTranscribing ? viewModel.cancelTranscriptionQueue : viewModel.transcribeAllQueuedFiles) {
+                Button(action: primaryQueueAction) {
                     Label(
-                        viewModel.isTranscribing ? L10n.t("button.cancelQueue") : L10n.t("button.transcribeAll"),
-                        systemImage: viewModel.isTranscribing ? "xmark.circle.fill" : "waveform.badge.magnifyingglass"
+                        primaryQueueButtonTitle,
+                        systemImage: primaryQueueButtonIcon
                     )
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
-                .disabled(viewModel.isTranscribing ? !viewModel.canCancelQueue : !viewModel.canStartQueue)
+                .disabled(!canUsePrimaryQueueButton)
+
+                Menu {
+                    Button(action: transcribeSelectedQueueTargets) {
+                        Label(L10n.t("button.transcribeSelected"), systemImage: "play")
+                    }
+                    .disabled(!canTranscribeSelectedQueueTargets)
+
+                    Button(action: viewModel.togglePauseQueueAfterCurrent) {
+                        Label(
+                            viewModel.shouldPauseQueueAfterCurrent
+                                ? L10n.t("button.cancelPauseAfterCurrent")
+                                : L10n.t("button.pauseAfterCurrent"),
+                            systemImage: viewModel.shouldPauseQueueAfterCurrent ? "forward.fill" : "pause.circle"
+                        )
+                    }
+                    .disabled(!viewModel.isTranscribing)
+
+                    Button(action: viewModel.skipCurrentQueueItem) {
+                        Label(L10n.t("button.skipCurrent"), systemImage: "forward.end.fill")
+                    }
+                    .disabled(!viewModel.canSkipCurrentQueueItem)
+
+                    Divider()
+
+                    Button(action: viewModel.clearQueuedItems) {
+                        Label(L10n.t("button.clearQueue"), systemImage: "text.badge.xmark")
+                    }
+                    .disabled(!viewModel.canClearQueue)
+                } label: {
+                    Label(L10n.t("button.queueActions"), systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .help(L10n.t("button.queueActions"))
             }
 
             HStack(spacing: 10) {
@@ -509,6 +623,17 @@ struct ContentView: View {
     private func historyItemRow(_ item: TranscriptHistoryItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
+                if viewModel.canRunHistoryItem(item) {
+                    Button(action: { toggleQueueSelection(for: item.id) }) {
+                        Image(systemName: selectedQueueItemIDs.contains(item.id) ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(selectedQueueItemIDs.contains(item.id) ? accentColor : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(viewModel.isTranscribing)
+                    .help(L10n.t("help.transcribeSelected"))
+                    .padding(.top, 0)
+                }
+
                 stateIndicator(for: item)
                     .padding(.top, 1)
 
@@ -561,6 +686,12 @@ struct ContentView: View {
                     Text(viewModel.historyStateLabel(for: item.state))
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(stateColor(for: item.state))
+
+                    if let queuePosition = viewModel.queuePositionText(for: item) {
+                        Text(queuePosition)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer(minLength: 4)
@@ -579,7 +710,35 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderless)
                     } else {
-                        if viewModel.canQueueHistoryItem(item) {
+                        if item.state == .queued {
+                            Button(action: { viewModel.moveQueuedHistoryItemUp(item.id) }) {
+                                Image(systemName: "arrow.up")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!viewModel.canMoveQueuedHistoryItemUp(item))
+                            .help(L10n.t("help.moveQueueUp"))
+
+                            Button(action: { viewModel.moveQueuedHistoryItemDown(item.id) }) {
+                                Image(systemName: "arrow.down")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!viewModel.canMoveQueuedHistoryItemDown(item))
+                            .help(L10n.t("help.moveQueueDown"))
+
+                            Button(action: { viewModel.transcribeHistoryItemNow(item.id) }) {
+                                Image(systemName: "play.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(viewModel.isTranscribing || !viewModel.hasConnectedModel)
+                            .help(L10n.t("help.transcribeSelected"))
+
+                            Button(action: { viewModel.removeHistoryItemFromQueue(item.id) }) {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(viewModel.isTranscribing)
+                            .help(L10n.t("help.removeFromQueue"))
+                        } else if viewModel.canQueueHistoryItem(item) {
                             Button(action: { viewModel.queueHistoryItemForTranscription(item.id) }) {
                                 Image(systemName: "waveform.badge.magnifyingglass")
                             }
@@ -665,6 +824,14 @@ struct ContentView: View {
         editingHistoryItemID = item.id
         historyRenameDraft = viewModel.historyDisplayName(for: item)
         focusedHistoryRenameFieldID = item.id
+    }
+
+    private func toggleQueueSelection(for id: UUID) {
+        if selectedQueueItemIDs.contains(id) {
+            selectedQueueItemIDs.remove(id)
+        } else {
+            selectedQueueItemIDs.insert(id)
+        }
     }
 
     private func commitHistoryRename(for id: UUID) {
@@ -815,6 +982,9 @@ struct ContentView: View {
     private func stateIndicator(for item: TranscriptHistoryItem) -> some View {
         Group {
             switch item.state {
+            case .ready:
+                Image(systemName: "circle")
+                    .foregroundStyle(.secondary)
             case .queued:
                 Image(systemName: "clock")
                     .foregroundStyle(.secondary)
@@ -834,6 +1004,8 @@ struct ContentView: View {
 
     private func stateColor(for state: TranscriptJobState) -> Color {
         switch state {
+        case .ready:
+            return .secondary
         case .queued:
             return .secondary
         case .processing:

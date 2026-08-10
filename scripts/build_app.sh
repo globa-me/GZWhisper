@@ -17,8 +17,8 @@ MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
 ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-1}"
-APP_VERSION="${APP_VERSION:-1.4.2}"
-APP_BUILD="${APP_BUILD:-150426}"
+APP_VERSION="${APP_VERSION:-1.4.3}"
+APP_BUILD="${APP_BUILD:-150626}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-arm64"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
@@ -132,8 +132,8 @@ if ! file "$EMBEDDED_PYTHON" | grep -q "arm64"; then
   exit 1
 fi
 
-EMBEDDED_PY_VERSION="$("$EMBEDDED_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
-EMBEDDED_PY_MINOR="$("$EMBEDDED_PYTHON" -c 'import sys; print(sys.version_info.minor)')"
+EMBEDDED_PY_VERSION="$(PYTHONDONTWRITEBYTECODE=1 "$EMBEDDED_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
+EMBEDDED_PY_MINOR="$(PYTHONDONTWRITEBYTECODE=1 "$EMBEDDED_PYTHON" -c 'import sys; print(sys.version_info.minor)')"
 if [[ "$EMBEDDED_PY_MINOR" -lt 10 || "$EMBEDDED_PY_MINOR" -gt 12 ]]; then
   echo "Embedded Python runtime version is unsupported: $EMBEDDED_PY_VERSION"
   echo "Use Python 3.10-3.12 (recommended: 3.12) in scripts/prepare_embedded_python.sh"

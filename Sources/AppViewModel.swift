@@ -3,7 +3,8 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-enum TranscriptJobState: String, Codable {
+enum TranscriptJobState: String, Codable, Hashable {
+    case ready
     case queued
     case processing
     case completed
@@ -27,6 +28,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     var modelID: String?
     var recordingMode: RecordingInputMode?
     var state: TranscriptJobState
+    var queueOrder: Int?
     var errorMessage: String?
     var progressFraction: Double? = nil
     var etaSeconds: Double? = nil
@@ -45,6 +47,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         modelID: String? = nil,
         recordingMode: RecordingInputMode? = nil,
         state: TranscriptJobState,
+        queueOrder: Int? = nil,
         errorMessage: String? = nil,
         progressFraction: Double? = nil,
         etaSeconds: Double? = nil,
@@ -62,6 +65,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         self.modelID = modelID
         self.recordingMode = recordingMode
         self.state = state
+        self.queueOrder = queueOrder
         self.errorMessage = errorMessage
         self.progressFraction = progressFraction
         self.etaSeconds = etaSeconds
@@ -81,6 +85,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         case modelID
         case recordingMode
         case state
+        case queueOrder
         case errorMessage
     }
 
@@ -122,6 +127,8 @@ final class AppViewModel: ObservableObject {
 
     @Published var isDownloadingModel = false
     @Published var isTranscribing = false
+    @Published var isQueuePaused = false
+    @Published var shouldPauseQueueAfterCurrent = false
     @Published var downloadSourceText = ""
     @Published var downloadProgressText = ""
     @Published var downloadProgressFraction = 0.0
@@ -189,6 +196,8 @@ final class AppViewModel: ObservableObject {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var activeTranscriptionRunHandle: TranscriptionRunHandle?
     private var isQueueCancellationRequested = false
+    private var isSkippingCurrentQueueItem = false
+    private var activeQueueFilterIDs: Set<UUID>?
     private let historyPersistenceQueue = DispatchQueue(label: "com.gzwhisper.history.persistence", qos: .utility)
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
@@ -201,6 +210,34 @@ final class AppViewModel: ObservableObject {
 
     var canCancelQueue: Bool {
         isTranscribing
+    }
+
+    var canResumeQueue: Bool {
+        isQueuePaused && canStartQueue
+    }
+
+    var canStartSelectedQueue: Bool {
+        guard
+            !isDownloadingModel,
+            !isTranscribing,
+            !isRecording,
+            !isStoppingRecording,
+            hasConnectedModel,
+            runtimeIssueMessage == nil,
+            let selectedHistoryItem
+        else {
+            return false
+        }
+
+        return canRunHistoryItem(selectedHistoryItem)
+    }
+
+    var canClearQueue: Bool {
+        hasQueuedItems
+    }
+
+    var canSkipCurrentQueueItem: Bool {
+        isTranscribing && activeProcessingItem != nil
     }
 
     var canDeleteModel: Bool {
@@ -239,6 +276,13 @@ final class AppViewModel: ObservableObject {
         historyItems.first(where: { $0.state == .processing })
     }
 
+    var selectedHistoryItem: TranscriptHistoryItem? {
+        guard let selectedHistoryItemID else {
+            return nil
+        }
+        return historyItems.first(where: { $0.id == selectedHistoryItemID })
+    }
+
     var canStartRecording: Bool {
         !isRecording && !isStoppingRecording && !isTranscribing && !isDownloadingModel
     }
@@ -256,10 +300,10 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.2"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.3"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "150426"
+        ) ?? "150626"
     }
 
     deinit {
@@ -676,6 +720,195 @@ final class AppViewModel: ObservableObject {
     }
 
     func transcribeAllQueuedFiles() {
+        startQueue(filterIDs: nil)
+    }
+
+    func transcribeSelectedHistoryItem() {
+        guard let selectedHistoryItemID else {
+            statusMessage = L10n.t("status.pickFileFirst")
+            return
+        }
+
+        transcribeHistoryItemNow(selectedHistoryItemID)
+    }
+
+    func transcribeHistoryItemNow(_ id: UUID) {
+        transcribeHistoryItemsNow([id])
+    }
+
+    func transcribeHistoryItemsNow(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else {
+            statusMessage = L10n.t("status.pickFileFirst")
+            return
+        }
+
+        var runnableIDs: Set<UUID> = []
+
+        for id in ids {
+            guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
+                continue
+            }
+
+            guard historyItems[index].state != .processing else {
+                continue
+            }
+
+            guard historyItems[index].state == .queued || canQueueHistoryItem(historyItems[index]) else {
+                continue
+            }
+
+            guard FileManager.default.fileExists(atPath: historyItems[index].sourceFilePath) else {
+                historyItems[index].state = .failed
+                historyItems[index].queueOrder = nil
+                historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].displayName)
+                continue
+            }
+
+            ensureItemQueued(at: index)
+            runnableIDs.insert(id)
+        }
+
+        guard !runnableIDs.isEmpty else {
+            persistHistoryToDisk()
+            statusMessage = L10n.t("status.queueEmpty")
+            return
+        }
+
+        selectedHistoryItemID = runnableIDs.first
+        normalizeQueueOrders()
+        sortHistoryByDateDesc()
+        persistHistoryToDisk()
+        startQueue(filterIDs: runnableIDs)
+    }
+
+    func resumeQueue() {
+        guard canResumeQueue else {
+            return
+        }
+
+        isQueuePaused = false
+        shouldPauseQueueAfterCurrent = false
+        isQueueCancellationRequested = false
+        isSkippingCurrentQueueItem = false
+        isTranscribing = true
+        processNextQueuedItem()
+    }
+
+    func togglePauseQueueAfterCurrent() {
+        guard isTranscribing else {
+            return
+        }
+
+        shouldPauseQueueAfterCurrent.toggle()
+        statusMessage = shouldPauseQueueAfterCurrent
+            ? L10n.t("status.queuePauseRequested")
+            : L10n.t("status.queuePauseCancelled")
+    }
+
+    func skipCurrentQueueItem() {
+        guard canSkipCurrentQueueItem else {
+            return
+        }
+
+        isSkippingCurrentQueueItem = true
+        activeTranscriptionRunHandle?.cancel()
+        activeProgressFraction = nil
+        activeETA = ""
+        statusMessage = L10n.t("status.queueSkippingCurrent")
+    }
+
+    func clearQueuedItems() {
+        guard hasQueuedItems else {
+            statusMessage = L10n.t("status.queueEmpty")
+            return
+        }
+
+        var clearedCount = 0
+        historyItems = historyItems.compactMap { item in
+            guard item.state == .queued else {
+                return item
+            }
+
+            clearedCount += 1
+
+            if item.isRuntimeOnly && item.transcriptPath == nil && item.audioPath == nil {
+                return nil
+            }
+
+            var copy = item
+            copy.state = .ready
+            copy.queueOrder = nil
+            copy.errorMessage = nil
+            copy.progressFraction = nil
+            copy.etaSeconds = nil
+            return copy
+        }
+
+        if !hasQueuedItems {
+            shouldPauseQueueAfterCurrent = false
+            if isQueuePaused {
+                isQueuePaused = false
+                activeQueueFilterIDs = nil
+            }
+        }
+
+        sortHistoryByDateDesc()
+        persistHistoryToDisk()
+        statusMessage = L10n.f("status.queueCleared", clearedCount)
+    }
+
+    func removeHistoryItemFromQueue(_ id: UUID) {
+        guard let index = historyItems.firstIndex(where: { $0.id == id }), historyItems[index].state == .queued else {
+            return
+        }
+
+        if historyItems[index].isRuntimeOnly && historyItems[index].transcriptPath == nil && historyItems[index].audioPath == nil {
+            let name = historyItems[index].displayName
+            historyItems.remove(at: index)
+            statusMessage = L10n.f("status.queueRemoved", name)
+        } else {
+            historyItems[index].state = .ready
+            historyItems[index].queueOrder = nil
+            historyItems[index].errorMessage = nil
+            historyItems[index].progressFraction = nil
+            historyItems[index].etaSeconds = nil
+            statusMessage = L10n.f("status.queueRemoved", historyItems[index].displayName)
+        }
+
+        sortHistoryByDateDesc()
+        persistHistoryToDisk()
+    }
+
+    func moveQueuedHistoryItemUp(_ id: UUID) {
+        moveQueuedHistoryItem(id, offset: -1)
+    }
+
+    func moveQueuedHistoryItemDown(_ id: UUID) {
+        moveQueuedHistoryItem(id, offset: 1)
+    }
+
+    func canMoveQueuedHistoryItemUp(_ item: TranscriptHistoryItem) -> Bool {
+        queuedOnlyItemIDsInOrder().first != item.id && item.state == .queued
+    }
+
+    func canMoveQueuedHistoryItemDown(_ item: TranscriptHistoryItem) -> Bool {
+        queuedOnlyItemIDsInOrder().last != item.id && item.state == .queued
+    }
+
+    func queuePositionText(for item: TranscriptHistoryItem) -> String? {
+        let activeStates: Set<TranscriptJobState> = [.queued, .processing]
+        guard activeStates.contains(item.state) else {
+            return nil
+        }
+
+        guard let index = queuedItemIDsInOrder().firstIndex(of: item.id) else {
+            return nil
+        }
+
+        return L10n.f("status.queuePosition", index + 1)
+    }
+
+    private func startQueue(filterIDs: Set<UUID>?) {
         guard ensureRuntimeReady() else { return }
         guard !isRecording else {
             statusMessage = L10n.t("record.status.stopFirst")
@@ -695,6 +928,10 @@ final class AppViewModel: ObservableObject {
         }
 
         isQueueCancellationRequested = false
+        isSkippingCurrentQueueItem = false
+        isQueuePaused = false
+        shouldPauseQueueAfterCurrent = false
+        activeQueueFilterIDs = filterIDs
         isTranscribing = true
         processNextQueuedItem()
     }
@@ -705,6 +942,7 @@ final class AppViewModel: ObservableObject {
         }
 
         isQueueCancellationRequested = true
+        isSkippingCurrentQueueItem = false
         activeTranscriptionRunHandle?.cancel()
         activeProgressFraction = nil
         activeETA = ""
@@ -730,6 +968,7 @@ final class AppViewModel: ObservableObject {
         }
 
         historyItems[index].state = .queued
+        historyItems[index].queueOrder = nextQueueOrder()
         historyItems[index].errorMessage = nil
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
@@ -754,6 +993,11 @@ final class AppViewModel: ObservableObject {
             return false
         }
         return FileManager.default.fileExists(atPath: item.sourceFilePath)
+    }
+
+    func canRunHistoryItem(_ item: TranscriptHistoryItem) -> Bool {
+        (item.state == .queued || canQueueHistoryItem(item))
+            && FileManager.default.fileExists(atPath: item.sourceFilePath)
     }
 
     func openHistoryItem(_ id: UUID) {
@@ -942,6 +1186,8 @@ final class AppViewModel: ObservableObject {
 
     func historyStateLabel(for state: TranscriptJobState) -> String {
         switch state {
+        case .ready:
+            return L10n.t("status.readyToQueue")
         case .queued:
             return L10n.t("status.queued")
         case .processing:
@@ -1030,13 +1276,96 @@ final class AppViewModel: ObservableObject {
         item.state != .processing
     }
 
+    private func ensureItemQueued(at index: Int) {
+        historyItems[index].state = .queued
+        if historyItems[index].queueOrder == nil {
+            historyItems[index].queueOrder = nextQueueOrder()
+        }
+        historyItems[index].errorMessage = nil
+        historyItems[index].progressFraction = nil
+        historyItems[index].etaSeconds = nil
+    }
+
+    private func nextQueueOrder(excluding excludedID: UUID? = nil) -> Int {
+        let currentMax = historyItems
+            .filter { $0.id != excludedID }
+            .compactMap(\.queueOrder)
+            .max() ?? 0
+        return currentMax + 1
+    }
+
+    private func nextQueuedItemIndex() -> Int? {
+        let filterIDs = activeQueueFilterIDs
+        let candidates = historyItems.indices.filter { index in
+            historyItems[index].state == .queued
+                && (filterIDs == nil || filterIDs?.contains(historyItems[index].id) == true)
+        }
+
+        return candidates.min { lhs, rhs in
+            queueSortKey(for: historyItems[lhs]) < queueSortKey(for: historyItems[rhs])
+        }
+    }
+
+    private func queuedItemIDsInOrder() -> [UUID] {
+        historyItems
+            .filter { $0.state == .queued || $0.state == .processing }
+            .sorted { queueSortKey(for: $0) < queueSortKey(for: $1) }
+            .map(\.id)
+    }
+
+    private func queuedOnlyItemIDsInOrder() -> [UUID] {
+        historyItems
+            .filter { $0.state == .queued }
+            .sorted { queueSortKey(for: $0) < queueSortKey(for: $1) }
+            .map(\.id)
+    }
+
+    private func moveQueuedHistoryItem(_ id: UUID, offset: Int) {
+        let orderedIDs = queuedOnlyItemIDsInOrder()
+
+        guard
+            let currentPosition = orderedIDs.firstIndex(of: id),
+            orderedIDs.indices.contains(currentPosition + offset),
+            let currentIndex = historyItems.firstIndex(where: { $0.id == id }),
+            let swapIndex = historyItems.firstIndex(where: { $0.id == orderedIDs[currentPosition + offset] })
+        else {
+            return
+        }
+
+        let currentOrder = historyItems[currentIndex].queueOrder
+        historyItems[currentIndex].queueOrder = historyItems[swapIndex].queueOrder
+        historyItems[swapIndex].queueOrder = currentOrder
+
+        normalizeQueueOrders()
+        sortHistoryByDateDesc()
+        persistHistoryToDisk()
+    }
+
+    private func queueSortKey(for item: TranscriptHistoryItem) -> (Int, TimeInterval, String) {
+        (
+            item.queueOrder ?? Int.max,
+            item.createdAt.timeIntervalSince1970,
+            item.id.uuidString
+        )
+    }
+
+    private func normalizeQueueOrders() {
+        let orderedIDs = queuedItemIDsInOrder()
+        for (position, id) in orderedIDs.enumerated() {
+            guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
+                continue
+            }
+            historyItems[index].queueOrder = position + 1
+        }
+    }
+
     private func processNextQueuedItem() {
         if isQueueCancellationRequested {
             finishQueueCancellation()
             return
         }
 
-        guard let index = historyItems.firstIndex(where: { $0.state == .queued }) else {
+        guard let index = nextQueuedItemIndex() else {
             finishQueueRun()
             return
         }
@@ -1122,7 +1451,7 @@ final class AppViewModel: ObservableObject {
                         transcriptURL: transcriptURL,
                         completedAt: completedAt
                     )
-                    self.processNextQueuedItem()
+                    self.advanceQueueAfterCurrentItem()
                 }
             } catch {
                 if prepared?.shouldCleanup == true, let prepared {
@@ -1131,21 +1460,50 @@ final class AppViewModel: ObservableObject {
 
                 DispatchQueue.main.async {
                     self.activeTranscriptionRunHandle = nil
+                    if self.isSkippingCurrentQueueItem {
+                        self.restoreQueuedStateAfterSkip(itemID: itemID)
+                        self.isSkippingCurrentQueueItem = false
+                        self.advanceQueueAfterCurrentItem()
+                        return
+                    }
                     if error is TranscriptionCancellationError || self.isQueueCancellationRequested {
                         self.restoreQueuedStateAfterCancellation(itemID: itemID)
                         self.finishQueueCancellation()
                         return
                     }
                     self.finishTranscriptionFailure(itemID: itemID, error: error)
-                    self.processNextQueuedItem()
+                    self.advanceQueueAfterCurrentItem()
                 }
             }
         }
     }
 
+    private func advanceQueueAfterCurrentItem() {
+        if isQueueCancellationRequested {
+            finishQueueCancellation()
+            return
+        }
+
+        guard nextQueuedItemIndex() != nil else {
+            finishQueueRun()
+            return
+        }
+
+        if shouldPauseQueueAfterCurrent {
+            pauseQueueRun()
+            return
+        }
+
+        processNextQueuedItem()
+    }
+
     private func finishQueueRun() {
         isTranscribing = false
+        isQueuePaused = false
         isQueueCancellationRequested = false
+        isSkippingCurrentQueueItem = false
+        shouldPauseQueueAfterCurrent = false
+        activeQueueFilterIDs = nil
         activeTranscriptionRunHandle = nil
         currentTranscribingFileName = ""
         activeProgressFraction = nil
@@ -1155,12 +1513,30 @@ final class AppViewModel: ObservableObject {
 
     private func finishQueueCancellation() {
         isTranscribing = false
+        isQueuePaused = false
         isQueueCancellationRequested = false
+        isSkippingCurrentQueueItem = false
+        shouldPauseQueueAfterCurrent = false
+        activeQueueFilterIDs = nil
         activeTranscriptionRunHandle = nil
         currentTranscribingFileName = ""
         activeProgressFraction = nil
         activeETA = ""
         statusMessage = L10n.t("status.queueCancelled")
+        persistHistoryToDisk()
+    }
+
+    private func pauseQueueRun() {
+        isTranscribing = false
+        isQueuePaused = true
+        isQueueCancellationRequested = false
+        isSkippingCurrentQueueItem = false
+        shouldPauseQueueAfterCurrent = false
+        activeTranscriptionRunHandle = nil
+        currentTranscribingFileName = ""
+        activeProgressFraction = nil
+        activeETA = ""
+        statusMessage = L10n.t("status.queuePaused")
         persistHistoryToDisk()
     }
 
@@ -1175,6 +1551,7 @@ final class AppViewModel: ObservableObject {
         }
 
         historyItems[index].state = .completed
+        historyItems[index].queueOrder = nil
         historyItems[index].createdAt = completedAt
         historyItems[index].transcriptPath = transcriptURL.path
         historyItems[index].detectedLanguage = result.detectedLanguage
@@ -1209,6 +1586,7 @@ final class AppViewModel: ObservableObject {
         }
 
         historyItems[index].state = .failed
+        historyItems[index].queueOrder = nil
         historyItems[index].errorMessage = error.localizedDescription
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
@@ -1228,9 +1606,26 @@ final class AppViewModel: ObservableObject {
         }
 
         historyItems[index].state = .queued
+        if historyItems[index].queueOrder == nil {
+            historyItems[index].queueOrder = nextQueueOrder()
+        }
         historyItems[index].errorMessage = nil
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
+    }
+
+    private func restoreQueuedStateAfterSkip(itemID: UUID) {
+        guard let index = historyItems.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        historyItems[index].state = .queued
+        historyItems[index].queueOrder = nextQueueOrder(excluding: itemID)
+        historyItems[index].errorMessage = nil
+        historyItems[index].progressFraction = nil
+        historyItems[index].etaSeconds = nil
+        sortHistoryByDateDesc()
+        statusMessage = L10n.f("status.queueSkippedCurrent", historyItems[index].displayName)
     }
 
     private func applyTranscriptionEvent(_ event: TranscriptionEvent, itemID: UUID, startedAt: Date) {
@@ -1290,6 +1685,7 @@ final class AppViewModel: ObservableObject {
                 createdAt: now.addingTimeInterval(Double(offset) * 0.001),
                 mediaDurationSeconds: durationSeconds,
                 state: .queued,
+                queueOrder: nextQueueOrder() + offset,
                 isRuntimeOnly: true
             )
             historyItems.insert(item, at: 0)
@@ -1301,6 +1697,7 @@ final class AppViewModel: ObservableObject {
         } else {
             statusMessage = L10n.f("status.filesAdded", supported.count)
         }
+        normalizeQueueOrders()
         sortHistoryByDateDesc()
     }
 
@@ -1415,7 +1812,7 @@ final class AppViewModel: ObservableObject {
             copy.progressFraction = nil
             copy.etaSeconds = nil
             copy.isRuntimeOnly = false
-            if !copy.state.isTerminal {
+            if copy.state == .processing {
                 if copy.audioPath != nil {
                     copy.state = .queued
                     copy.errorMessage = nil
@@ -1424,9 +1821,13 @@ final class AppViewModel: ObservableObject {
                     copy.errorMessage = L10n.t("status.failed")
                 }
             }
+            if copy.state != .queued {
+                copy.queueOrder = nil
+            }
             return copy
         }
 
+        normalizeQueueOrders()
         sortHistoryByDateDesc()
     }
 
@@ -1445,6 +1846,9 @@ final class AppViewModel: ObservableObject {
             if copy.state == .processing {
                 copy.state = .queued
                 copy.errorMessage = nil
+            }
+            if copy.state != .queued {
+                copy.queueOrder = nil
             }
             copy.progressFraction = nil
             copy.etaSeconds = nil
@@ -1469,7 +1873,20 @@ final class AppViewModel: ObservableObject {
     }
 
     private func sortHistoryByDateDesc() {
-        historyItems.sort { $0.createdAt > $1.createdAt }
+        historyItems.sort { lhs, rhs in
+            let lhsIsActive = lhs.state == .queued || lhs.state == .processing
+            let rhsIsActive = rhs.state == .queued || rhs.state == .processing
+
+            if lhsIsActive != rhsIsActive {
+                return lhsIsActive && !rhsIsActive
+            }
+
+            if lhsIsActive && rhsIsActive {
+                return queueSortKey(for: lhs) < queueSortKey(for: rhs)
+            }
+
+            return lhs.createdAt > rhs.createdAt
+        }
     }
 
     private func transcriptContentsContainQuery(for item: TranscriptHistoryItem, normalizedQuery: String) -> Bool {
@@ -1554,6 +1971,7 @@ final class AppViewModel: ObservableObject {
             audioPath: result.audioURL.path,
             recordingMode: result.mode,
             state: .queued,
+            queueOrder: nextQueueOrder(),
             isRuntimeOnly: false
         )
         historyItems.insert(item, at: 0)

@@ -1,6 +1,6 @@
 # GZWhisper
 
-GZWhisper is a local-first speech app for transcription of audio/video files. Stable n **tested ONLY on macOS**, Windows version is partially working, but needed to be fixed and properly tested
+GZWhisper is a local-first speech app for transcription of audio/video files. The stable app is **tested ONLY on macOS**. The Windows version is partially working, but still needs fixes and proper testing.
 
 This repository includes desktop apps for three platforms:
 - `macOS` app (SwiftUI): `Sources/`
@@ -27,40 +27,70 @@ After the model is downloaded, transcription runs on the user's machine.
   - English (`en`)
   - Chinese (`zh`)
 
-## Download (macOS)
+## macOS: download and run
 
-Current macOS package target is `arm64` only (Apple Silicon).
+**Current release: `v1.4.3` (build `150626`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
 
-Download the latest release files:
+Choose one of the files below. The contents are identical; DMG is the most familiar installation format, while ZIP is often more convenient when macOS has to approve an unsigned or non-notarized app.
 
 - [Latest DMG: GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
 - [Latest ZIP: GZWhisper-macOS.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS.zip)
+- [v1.4.3 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.4.3/GZWhisper-Installer-1.4.3.dmg)
+- [v1.4.3 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.4.3/GZWhisper-macOS-1.4.3.zip)
 
-Published release links:
+Older releases are available on the [Releases page](https://github.com/globa-me/GZWhisper/releases).
 
-- [v1.4.1 (current): GZWhisper-Installer-1.4.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.4.1/GZWhisper-Installer-1.4.1.dmg)
-- [v1.4.1 (current): GZWhisper-macOS-1.4.1.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.4.1/GZWhisper-macOS-1.4.1.zip)
-- [v1.4.0: GZWhisper-Installer-1.4.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.4.0/GZWhisper-Installer-1.4.dmg)
-- [v1.4.0: GZWhisper-macOS-1.4.zip](https://github.com/globa-me/GZWhisper/releases/download/v1.4.0/GZWhisper-macOS-1.4.zip)
-- [v1.2.0 (legacy): GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.2.0/GZWhisper-Installer.dmg)
-- [v1.1.0 (legacy, no recording): GZWhisper-Installer-1.1.dmg](https://github.com/globa-me/GZWhisper/releases/download/v1.1.0/GZWhisper-Installer-1.1.dmg)
+### Install a ready-made app (no coding required)
 
-Current source tree version in this repository: `v1.4.2` (`build 150426`).
+1. Download the DMG or ZIP above from this repository's Releases page.
+2. For a DMG, open it and drag `GZWhisper.app` to the `Applications` shortcut. For a ZIP, double-click it in Finder, then move `GZWhisper.app` to `Applications`.
+3. Eject the DMG if you used one, then open GZWhisper from `Applications`.
 
-Install:
+### If macOS says the app cannot be opened
 
-1. Open `GZWhisper-Installer.dmg` (or versioned `GZWhisper-Installer-1.4.1.dmg`).
-2. Drag `GZWhisper.app` to `Applications`.
-3. Eject the installer image.
-4. Launch the app from `Applications`.
+This is expected for an app that macOS cannot verify with Apple notarization. It does not mean the app is damaged. Only use the following steps for a file downloaded from this official GitHub repository.
 
-If macOS blocks the app:
+1. In `Applications`, Control-click (or right-click) `GZWhisper.app` and choose **Open**.
+2. Click **Open** in the confirmation dialog. This normally saves an exception for this app.
+3. If the button is not offered, try opening the app once and dismiss the warning. Open **System Settings → Privacy & Security**, scroll to the **Security** section, then click **Open Anyway** next to GZWhisper. Confirm with Touch ID or your Mac password.
 
-1. In `Applications`, right-click `GZWhisper.app` and choose `Open`.
-2. If needed, go to `System Settings -> Privacy & Security` and click `Open Anyway`.
-3. Use `Enable_GZWhisper.command` only as a local cleanup helper for the copied app in `Applications`.
+Do not disable Gatekeeper globally. The ZIP/DMG also includes `Enable_GZWhisper.command` and `Run_If_Blocked.txt` as a last-resort local helper; the System Settings method above is preferred.
 
-For unsigned or non-notarized builds distributed to other Macs, prefer the ZIP archive over the DMG. The hidden Gatekeeper `Anywhere` flow is not a stable install path on current macOS versions.
+When GZWhisper asks for recording access, allow the relevant permissions in **System Settings → Privacy & Security → Microphone** and, for system audio, **Screen & System Audio Recording**. Restart the app after changing a permission.
+
+### Build the current version yourself (Apple Silicon)
+
+Building from source is the best option if you want the exact current code, or prefer to run an app compiled on your own Mac. The build script uses your local Apple Development signing certificate when available and otherwise applies an ad-hoc signature. A self-built app is usually not quarantined; if macOS still blocks it, use the same **Privacy & Security → Open Anyway** steps above.
+
+1. Install Apple's Command Line Tools in Terminal:
+
+   ```bash
+   xcode-select --install
+   ```
+
+2. Install Apple Silicon Python 3.12. With [Homebrew](https://brew.sh/):
+
+   ```bash
+   brew install python@3.12
+   ```
+
+3. Clone the project and prepare its local Python runtime. This one-time step also downloads the wheels used by the app:
+
+   ```bash
+   git clone https://github.com/globa-me/GZWhisper.git
+   cd GZWhisper
+   PYTHON_BIN="$(brew --prefix python@3.12)/bin/python3.12" ./scripts/prepare_embedded_python.sh
+   ```
+
+4. Build and open the app:
+
+   ```bash
+   ./scripts/make_icon.sh
+   ./scripts/build_app.sh
+   open build/GZWhisper.app
+   ```
+
+The result is `build/GZWhisper.app`. To make a ZIP or DMG from your build, run `./scripts/package_zip.sh` or `./scripts/build_dmg.sh`.
 
 ## Quick Start (Linux)
 
@@ -164,12 +194,12 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.4.2.dmg`
+Output: `build/GZWhisper-Installer-1.4.3.dmg`
 
 Optional version/build override for release builds:
 
 ```bash
-APP_VERSION=1.4.2 APP_BUILD=150426 ./scripts/build_app.sh
+APP_VERSION=1.4.3 APP_BUILD=150626 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
 ```
 
@@ -184,7 +214,7 @@ Signing behavior:
 Optional notarization for public DMG builds:
 
 ```bash
-APP_VERSION=1.4.2 APP_BUILD=150426 ./scripts/build_app.sh
+APP_VERSION=1.4.3 APP_BUILD=150626 ./scripts/build_app.sh
 NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 ```
 
@@ -195,7 +225,7 @@ NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 The shipped macOS app now keeps the stable install name and bundle id so dragging a new release into `Applications` updates the previous app in place:
 - app bundle: `build/GZWhisper.app`
 - bundle id: `com.gzakharov.gzwhisper`
-- installer: `build/GZWhisper-Installer-1.4.2.dmg`
+- installer: `build/GZWhisper-Installer-1.4.3.dmg`
 
 If you need a non-versioned installer filename and volume title for release publishing, override:
 
@@ -236,7 +266,7 @@ Output: `build/GZWhisper.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS-1.4.2.zip`
+Output: `build/GZWhisper-macOS-1.4.3.zip`
 
 The ZIP now includes:
 - `GZWhisper.app`
@@ -250,7 +280,7 @@ The ZIP now includes:
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.4.2.dmg`
+Output: `build/GZWhisper-Installer-1.4.3.dmg`
 
 # First run (all platforms)
 
@@ -275,6 +305,12 @@ Output: `build/GZWhisper-Installer-1.4.2.dmg`
 - `scripts/` — build, package, install, uninstall scripts.
 
 ## Changelog
+
+### 2026-06-15 (v1.4.3, build 150626)
+
+- Added persistent queue controls: run selected history items, reorder queued files, pause after the current item, resume, skip the current item, remove a queued item, or clear the waiting queue.
+- Added a clearer error when a video file has no audio track.
+- Updated macOS app version and packaging defaults to `v1.4.3`.
 
 ### 2026-04-15 (v1.4.2, build 150426)
 

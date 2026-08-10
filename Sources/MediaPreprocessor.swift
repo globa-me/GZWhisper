@@ -8,11 +8,14 @@ struct PreparedAudio {
 }
 
 enum MediaPreprocessorError: LocalizedError {
+    case noAudioTrack
     case exportUnavailable
     case exportFailed(String)
 
     var errorDescription: String? {
         switch self {
+        case .noAudioTrack:
+            return L10n.t("media.noAudioTrack")
         case .exportUnavailable:
             return L10n.t("media.exportUnavailable")
         case let .exportFailed(details):
@@ -37,6 +40,10 @@ enum MediaPreprocessor {
 
     private static func extractAudio(from videoURL: URL, to outputURL: URL) throws {
         let asset = AVURLAsset(url: videoURL)
+
+        guard !asset.tracks(withMediaType: .audio).isEmpty else {
+            throw MediaPreprocessorError.noAudioTrack
+        }
 
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
             throw MediaPreprocessorError.exportUnavailable
