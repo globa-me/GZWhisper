@@ -33,8 +33,8 @@ After the model is downloaded, transcription runs on the user's machine.
 
 Choose one of the files below. The contents are identical; DMG is the most familiar installation format, while ZIP is often more convenient when macOS has to approve an unsigned or non-notarized app.
 
-- [Latest DMG: GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
-- [Latest ZIP: GZWhisper-macOS.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS.zip)
+- [Latest DMG: GZWhisper-Installer-1.5.0.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.0.dmg)
+- [Latest ZIP: GZWhisper-macOS-1.5.0.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.0.zip)
 - [v1.5.0 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.0/GZWhisper-Installer-1.5.0.dmg)
 - [v1.5.0 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.0/GZWhisper-macOS-1.5.0.zip)
 
