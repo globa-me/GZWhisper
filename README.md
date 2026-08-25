@@ -29,14 +29,14 @@ After the model is downloaded, transcription runs on the user's machine.
 
 ## macOS: download and run
 
-**Current release: `v1.5.0` (build `250826`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
+**Current release: `v1.5.1` (build `2508261`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
 
 Choose one of the files below. The contents are identical; DMG is the most familiar installation format, while ZIP is often more convenient when macOS has to approve an unsigned or non-notarized app.
 
-- [Latest DMG: GZWhisper-Installer-1.5.0.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.0.dmg)
-- [Latest ZIP: GZWhisper-macOS-1.5.0.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.0.zip)
-- [v1.5.0 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.0/GZWhisper-Installer-1.5.0.dmg)
-- [v1.5.0 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.0/GZWhisper-macOS-1.5.0.zip)
+- [Latest DMG: GZWhisper-Installer-1.5.1.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.1.dmg)
+- [Latest ZIP: GZWhisper-macOS-1.5.1.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.1.zip)
+- [v1.5.1 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.1/GZWhisper-Installer-1.5.1.dmg)
+- [v1.5.1 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.1/GZWhisper-macOS-1.5.1.zip)
 
 Older releases are available on the [Releases page](https://github.com/globa-me/GZWhisper/releases).
 
@@ -194,12 +194,12 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.5.0.dmg`
+Output: `build/GZWhisper-Installer-1.5.1.dmg`
 
 Optional version/build override for release builds:
 
 ```bash
-APP_VERSION=1.5.0 APP_BUILD=250826 ./scripts/build_app.sh
+APP_VERSION=1.5.1 APP_BUILD=2508261 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
 ```
 
@@ -214,18 +214,18 @@ Signing behavior:
 Optional notarization for public DMG builds:
 
 ```bash
-APP_VERSION=1.5.0 APP_BUILD=250826 ./scripts/build_app.sh
+APP_VERSION=1.5.1 APP_BUILD=2508261 ./scripts/build_app.sh
 NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 ```
 
 `NOTARYTOOL_PROFILE` must point to credentials previously stored with `xcrun notarytool store-credentials`, and notarization should only be used together with a `Developer ID Application` signed app.
 
-`APP_BUILD` uses a date code in `DDMMYY` format.
+`APP_BUILD` uses a date code in `DDMMYY` format, with an optional numeric suffix for another build on the same day.
 
 The shipped macOS app now keeps the stable install name and bundle id so dragging a new release into `Applications` updates the previous app in place:
 - app bundle: `build/GZWhisper.app`
 - bundle id: `com.gzakharov.gzwhisper`
-- installer: `build/GZWhisper-Installer-1.5.0.dmg`
+- installer: `build/GZWhisper-Installer-1.5.1.dmg`
 
 If you need a non-versioned installer filename and volume title for release publishing, override:
 
@@ -266,7 +266,7 @@ Output: `build/GZWhisper.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS-1.5.0.zip`
+Output: `build/GZWhisper-macOS-1.5.1.zip`
 
 The ZIP now includes:
 - `GZWhisper.app`
@@ -280,7 +280,7 @@ The ZIP now includes:
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.5.0.dmg`
+Output: `build/GZWhisper-Installer-1.5.1.dmg`
 
 # First run (all platforms)
 
@@ -305,6 +305,12 @@ Output: `build/GZWhisper-Installer-1.5.0.dmg`
 - `scripts/` — build, package, install, uninstall scripts.
 
 ## Changelog
+
+### 2026-08-25 (v1.5.1, build 2508261)
+
+- Added responsive wide and compact layouts for queue, recording, history-search, and result-export controls.
+- Reduced the minimum window width and allowed secondary controls to wrap onto additional rows without clipping or vertical text.
+- Kept the existing application-support directory and transcript-history format unchanged, so upgrades retain prior history and model selection.
 
 ### 2026-08-25 (v1.5.0, build 250826)
 

@@ -16,7 +16,7 @@ struct GZWhisperApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 700, idealWidth: 1100, minHeight: 500, idealHeight: 760)
+                .frame(minWidth: 640, idealWidth: 1100, minHeight: 500, idealHeight: 760)
         }
     }
 }
@@ -202,7 +202,7 @@ struct ContentView: View {
                 workspaceBody
                 footerBar
             }
-            .padding(20)
+            .padding(12)
         }
         .onAppear {
             viewModel.initialize()
@@ -321,7 +321,7 @@ struct ContentView: View {
                 .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 360, alignment: .trailing)
+            .frame(minWidth: 150, idealWidth: 280, maxWidth: 360, alignment: .trailing)
             .help(viewModel.modelLocationText)
         } else {
             Button(action: viewModel.downloadModelWithFolderPrompt) {
@@ -331,10 +331,11 @@ struct ContentView: View {
             .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
 
             Button(action: viewModel.connectExistingLocalModel) {
-                Label(L10n.t("button.connectLocal"), systemImage: "externaldrive")
+                Image(systemName: "externaldrive")
             }
             .buttonStyle(.bordered)
             .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
+            .help(L10n.t("button.connectLocal"))
         }
     }
 
@@ -368,7 +369,7 @@ struct ContentView: View {
         HStack(spacing: 12) {
             if isHistoryVisible {
                 historyPanel
-                    .frame(minWidth: 220, idealWidth: 320, maxWidth: 360)
+                    .frame(minWidth: 200, idealWidth: 290, maxWidth: 340)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
@@ -383,172 +384,260 @@ struct ContentView: View {
 
     private var inputCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Button(action: { isHistoryVisible.toggle() }) {
-                    Image(systemName: "sidebar.left")
-                }
-                .buttonStyle(.bordered)
-                .help(isHistoryVisible ? L10n.t("button.hideHistory") : L10n.t("button.showHistory"))
-
-                Button(action: viewModel.chooseFiles) {
-                    Label(L10n.t("button.addMedia"), systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isDownloadingModel || viewModel.isRecording)
-
-                Text(viewModel.queueSummaryText)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Button(action: primaryQueueAction) {
-                    Label(
-                        primaryQueueButtonTitle,
-                        systemImage: primaryQueueButtonIcon
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
-                .disabled(!canUsePrimaryQueueButton)
-                .fixedSize(horizontal: true, vertical: false)
-
-                Menu {
-                    Button(action: transcribeSelectedQueueTargets) {
-                        Label(L10n.t("button.transcribeSelected"), systemImage: "play")
-                    }
-                    .disabled(!canTranscribeSelectedQueueTargets)
-
-                    Button(action: viewModel.togglePauseQueueAfterCurrent) {
-                        Label(
-                            viewModel.shouldPauseQueueAfterCurrent
-                                ? L10n.t("button.cancelPauseAfterCurrent")
-                                : L10n.t("button.pauseAfterCurrent"),
-                            systemImage: viewModel.shouldPauseQueueAfterCurrent ? "forward.fill" : "pause.circle"
-                        )
-                    }
-                    .disabled(!viewModel.isTranscribing)
-
-                    Button(action: viewModel.skipCurrentQueueItem) {
-                        Label(L10n.t("button.skipCurrent"), systemImage: "forward.end.fill")
-                    }
-                    .disabled(!viewModel.canSkipCurrentQueueItem)
-
-                    Divider()
-
-                    Button(action: viewModel.clearQueuedItems) {
-                        Label(L10n.t("button.clearQueue"), systemImage: "text.badge.xmark")
-                    }
-                    .disabled(!viewModel.canClearQueue)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .help(L10n.t("button.queueActions"))
-            }
-
-            HStack(spacing: 8) {
-                Picker(L10n.t("label.language"), selection: $viewModel.selectedLanguage) {
-                    ForEach(viewModel.languageOptions, id: \.code) { option in
-                        Text(option.title).tag(option.code)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(minWidth: 105, idealWidth: 130, maxWidth: 150)
-
-                statusPill(title: L10n.t("label.detectedLanguage"), value: viewModel.detectedLanguage)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Spacer(minLength: 8)
-            }
-
-            HStack(spacing: 8) {
-                Text(L10n.t("label.recordMode"))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Picker("", selection: $viewModel.selectedRecordingMode) {
-                    ForEach(viewModel.recordingModeOptions) { mode in
-                        Text(viewModel.recordingModeTitle(mode)).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(minWidth: 145, idealWidth: 190, maxWidth: 230)
-                .disabled(viewModel.isRecording)
-
-                Button(action: viewModel.isRecording ? viewModel.stopRecording : viewModel.startRecording) {
-                    Label(
-                        viewModel.isRecording ? L10n.t("button.stopRecording") : L10n.t("button.startRecording"),
-                        systemImage: viewModel.isRecording ? "stop.fill" : "record.circle"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(viewModel.isRecording ? .red : Color(red: 0.75, green: 0.10, blue: 0.14))
-                .disabled(viewModel.isRecording ? !viewModel.canStopRecording : !viewModel.canStartRecording)
-                .fixedSize(horizontal: true, vertical: false)
-
-                if viewModel.isRecording {
-                    Button(action: viewModel.toggleRecordingPause) {
-                        Label(
-                            viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"),
-                            systemImage: viewModel.isRecordingPaused ? "play.fill" : "pause.fill"
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(viewModel.isRecordingPaused ? !viewModel.canResumeRecording : !viewModel.canPauseRecording)
-
-                    if !viewModel.isRecordingHUDVisible {
-                        Button(action: viewModel.showRecordingHUD) {
-                            Image(systemName: "rectangle.topthird.inset.filled")
-                        }
-                        .buttonStyle(.bordered)
-                        .help(L10n.t("help.showRecordingHUD"))
-                    }
-                }
-
-                statusPill(title: L10n.t("label.recording"), value: viewModel.recordingElapsedText)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Menu {
-                    Toggle(L10n.t("setting.hudAutoShow"), isOn: $viewModel.shouldShowHUDOnRecordingStart)
-                    Toggle(L10n.t("setting.autoPauseSleep"), isOn: $viewModel.shouldAutoPauseOnSleep)
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-                .help(L10n.t("help.recordingOptions"))
-                .fixedSize(horizontal: true, vertical: false)
-
-                Spacer(minLength: 8)
-            }
+            adaptiveQueueControls
+            languageControls
+            adaptiveRecordingControls
         }
         .padding(12)
         .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
     }
 
-    private var historyPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    @ViewBuilder
+    private var adaptiveQueueControls: some View {
+        if #available(macOS 13.0, *) {
+            ViewThatFits(in: .horizontal) {
+                queueControlsWide
+                queueControlsCompact
+            }
+        } else {
+            queueControlsCompact
+        }
+    }
+
+    private var queueControlsWide: some View {
+        HStack(spacing: 8) {
+            historyToggleButton
+            addMediaButton
+            queueSummary
+            Spacer(minLength: 8)
+            primaryQueueButton
+            queueActionsMenu
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var queueControlsCompact: some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(L10n.t("title.history"))
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-
-                Text(historyCountLabel)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(pillBackgroundColor, in: Capsule())
-                    .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
-
+                historyToggleButton
+                addMediaButton
+                queueSummary
                 Spacer(minLength: 4)
+            }
 
-                if !viewModel.historyItems.isEmpty {
-                    historySearchField
-                        .frame(minWidth: 110, idealWidth: 145, maxWidth: 170)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                primaryQueueButton
+                queueActionsMenu
+            }
+        }
+    }
+
+    private var historyToggleButton: some View {
+        Button(action: { isHistoryVisible.toggle() }) {
+            Image(systemName: "sidebar.left")
+        }
+        .buttonStyle(.bordered)
+        .help(isHistoryVisible ? L10n.t("button.hideHistory") : L10n.t("button.showHistory"))
+    }
+
+    private var addMediaButton: some View {
+        Button(action: viewModel.chooseFiles) {
+            Label(L10n.t("button.addMedia"), systemImage: "plus")
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .disabled(viewModel.isDownloadingModel || viewModel.isRecording)
+    }
+
+    private var queueSummary: some View {
+        Text(viewModel.queueSummaryText)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var primaryQueueButton: some View {
+        Button(action: primaryQueueAction) {
+            Label(primaryQueueButtonTitle, systemImage: primaryQueueButtonIcon)
+                .lineLimit(1)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
+        .disabled(!canUsePrimaryQueueButton)
+    }
+
+    private var queueActionsMenu: some View {
+        Menu {
+            Button(action: transcribeSelectedQueueTargets) {
+                Label(L10n.t("button.transcribeSelected"), systemImage: "play")
+            }
+            .disabled(!canTranscribeSelectedQueueTargets)
+
+            Button(action: viewModel.togglePauseQueueAfterCurrent) {
+                Label(
+                    viewModel.shouldPauseQueueAfterCurrent
+                        ? L10n.t("button.cancelPauseAfterCurrent")
+                        : L10n.t("button.pauseAfterCurrent"),
+                    systemImage: viewModel.shouldPauseQueueAfterCurrent ? "forward.fill" : "pause.circle"
+                )
+            }
+            .disabled(!viewModel.isTranscribing)
+
+            Button(action: viewModel.skipCurrentQueueItem) {
+                Label(L10n.t("button.skipCurrent"), systemImage: "forward.end.fill")
+            }
+            .disabled(!viewModel.canSkipCurrentQueueItem)
+
+            Divider()
+
+            Button(action: viewModel.clearQueuedItems) {
+                Label(L10n.t("button.clearQueue"), systemImage: "text.badge.xmark")
+            }
+            .disabled(!viewModel.canClearQueue)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .help(L10n.t("button.queueActions"))
+    }
+
+    private var languageControls: some View {
+        HStack(spacing: 8) {
+            Picker(L10n.t("label.language"), selection: $viewModel.selectedLanguage) {
+                ForEach(viewModel.languageOptions, id: \.code) { option in
+                    Text(option.title).tag(option.code)
                 }
             }
+            .pickerStyle(.menu)
+            .frame(minWidth: 100, idealWidth: 130, maxWidth: 150)
+
+            statusPill(title: L10n.t("label.detectedLanguage"), value: viewModel.detectedLanguage)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var adaptiveRecordingControls: some View {
+        if #available(macOS 13.0, *) {
+            ViewThatFits(in: .horizontal) {
+                recordingControlsWide
+                recordingControlsCompact
+            }
+        } else {
+            recordingControlsCompact
+        }
+    }
+
+    private var recordingControlsWide: some View {
+        HStack(spacing: 8) {
+            recordingModeLabel
+            recordingModePicker
+            recordingPrimaryButton
+            recordingSessionButtons
+            recordingStatus
+            recordingOptionsMenu
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var recordingControlsCompact: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                recordingModeLabel
+                recordingModePicker
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                recordingPrimaryButton
+                recordingSessionButtons
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                recordingStatus
+                recordingOptionsMenu
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var recordingModeLabel: some View {
+        Text(L10n.t("label.recordMode"))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    private var recordingModePicker: some View {
+        Picker("", selection: $viewModel.selectedRecordingMode) {
+            ForEach(viewModel.recordingModeOptions) { mode in
+                Text(viewModel.recordingModeTitle(mode)).tag(mode)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(minWidth: 135, idealWidth: 190, maxWidth: 230)
+        .disabled(viewModel.isRecording)
+    }
+
+    private var recordingPrimaryButton: some View {
+        Button(action: viewModel.isRecording ? viewModel.stopRecording : viewModel.startRecording) {
+            Label(
+                viewModel.isRecording ? L10n.t("button.stopRecording") : L10n.t("button.startRecording"),
+                systemImage: viewModel.isRecording ? "stop.fill" : "record.circle"
+            )
+            .lineLimit(1)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(viewModel.isRecording ? .red : Color(red: 0.75, green: 0.10, blue: 0.14))
+        .disabled(viewModel.isRecording ? !viewModel.canStopRecording : !viewModel.canStartRecording)
+    }
+
+    @ViewBuilder
+    private var recordingSessionButtons: some View {
+        if viewModel.isRecording {
+            Button(action: viewModel.toggleRecordingPause) {
+                Label(
+                    viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"),
+                    systemImage: viewModel.isRecordingPaused ? "play.fill" : "pause.fill"
+                )
+                .lineLimit(1)
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isRecordingPaused ? !viewModel.canResumeRecording : !viewModel.canPauseRecording)
+
+            if !viewModel.isRecordingHUDVisible {
+                Button(action: viewModel.showRecordingHUD) {
+                    Image(systemName: "rectangle.topthird.inset.filled")
+                }
+                .buttonStyle(.bordered)
+                .help(L10n.t("help.showRecordingHUD"))
+            }
+        }
+    }
+
+    private var recordingStatus: some View {
+        statusPill(title: L10n.t("label.recording"), value: viewModel.recordingElapsedText)
+    }
+
+    private var recordingOptionsMenu: some View {
+        Menu {
+            Toggle(L10n.t("setting.hudAutoShow"), isOn: $viewModel.shouldShowHUDOnRecordingStart)
+            Toggle(L10n.t("setting.autoPauseSleep"), isOn: $viewModel.shouldAutoPauseOnSleep)
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+        }
+        .help(L10n.t("help.recordingOptions"))
+    }
+
+    private var historyPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            adaptiveHistoryHeader
 
             if viewModel.historyItems.isEmpty {
                 Text(L10n.t("text.historyEmpty"))
@@ -575,6 +664,60 @@ struct ContentView: View {
         .padding(12)
         .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var adaptiveHistoryHeader: some View {
+        if #available(macOS 13.0, *) {
+            ViewThatFits(in: .horizontal) {
+                historyHeaderWide
+                historyHeaderCompact
+            }
+        } else {
+            historyHeaderCompact
+        }
+    }
+
+    private var historyHeaderWide: some View {
+        HStack(spacing: 8) {
+            historyTitleAndCount
+            Spacer(minLength: 4)
+
+            if !viewModel.historyItems.isEmpty {
+                historySearchField
+                    .frame(width: 145)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var historyHeaderCompact: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                historyTitleAndCount
+                Spacer(minLength: 0)
+            }
+
+            if !viewModel.historyItems.isEmpty {
+                historySearchField
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var historyTitleAndCount: some View {
+        HStack(spacing: 8) {
+            Text(L10n.t("title.history"))
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+
+            Text(historyCountLabel)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(pillBackgroundColor, in: Capsule())
+                .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
+        }
     }
 
     private var historySearchField: some View {
@@ -843,24 +986,7 @@ struct ContentView: View {
 
     private var editorCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(L10n.t("title.result"))
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                Spacer()
-
-                Button(L10n.t("button.copyAll"), action: viewModel.copyAllText)
-                    .buttonStyle(.bordered)
-                    .disabled(viewModel.transcriptText.isEmpty)
-
-                Menu {
-                    Button(L10n.t("button.saveTXT"), action: viewModel.saveAsText)
-                    Button(L10n.t("button.saveJSON"), action: viewModel.saveAsJSON)
-                } label: {
-                    Label(L10n.t("button.export"), systemImage: "square.and.arrow.up")
-                }
-                .menuStyle(.borderlessButton)
-                    .disabled(viewModel.transcriptText.isEmpty)
-            }
+            adaptiveEditorHeader
 
             editorTextView
         }
@@ -868,6 +994,79 @@ struct ContentView: View {
         .padding(14)
         .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var adaptiveEditorHeader: some View {
+        if #available(macOS 13.0, *) {
+            ViewThatFits(in: .horizontal) {
+                editorHeaderWide
+                editorHeaderCompact
+            }
+        } else {
+            editorHeaderCompact
+        }
+    }
+
+    private var editorHeaderWide: some View {
+        HStack(spacing: 8) {
+            editorTitle
+            Spacer(minLength: 8)
+            copyAllButtonWithTitle
+            exportMenuWithTitle
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var editorHeaderCompact: some View {
+        HStack(spacing: 8) {
+            editorTitle
+            Spacer(minLength: 0)
+
+            Button(action: viewModel.copyAllText) {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.transcriptText.isEmpty)
+            .help(L10n.t("button.copyAll"))
+
+            Menu {
+                exportMenuItems
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .menuStyle(.borderlessButton)
+            .disabled(viewModel.transcriptText.isEmpty)
+            .help(L10n.t("button.export"))
+        }
+    }
+
+    private var editorTitle: some View {
+        Text(L10n.t("title.result"))
+            .font(.system(size: 18, weight: .semibold, design: .rounded))
+            .lineLimit(1)
+    }
+
+    private var copyAllButtonWithTitle: some View {
+        Button(L10n.t("button.copyAll"), action: viewModel.copyAllText)
+            .buttonStyle(.bordered)
+            .disabled(viewModel.transcriptText.isEmpty)
+    }
+
+    private var exportMenuWithTitle: some View {
+        Menu {
+            exportMenuItems
+        } label: {
+            Label(L10n.t("button.export"), systemImage: "square.and.arrow.up")
+        }
+        .menuStyle(.borderlessButton)
+        .disabled(viewModel.transcriptText.isEmpty)
+    }
+
+    @ViewBuilder
+    private var exportMenuItems: some View {
+        Button(L10n.t("button.saveTXT"), action: viewModel.saveAsText)
+        Button(L10n.t("button.saveJSON"), action: viewModel.saveAsJSON)
     }
 
     @ViewBuilder

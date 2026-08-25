@@ -300,10 +300,10 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.0"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.1"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "250826"
+        ) ?? "2508261"
     }
 
     deinit {

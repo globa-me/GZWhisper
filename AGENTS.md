@@ -4,14 +4,14 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 
 ## Current State
 
-- Current source version: `v1.5.0`, build `250826`.
-- Version `v1.5.0` compacts the macOS workspace and hardens fully offline Python dependency installation.
+- Current source version: `v1.5.1`, build `2508261`.
+- Version `v1.5.1` adds responsive wide/compact SwiftUI layouts so controls wrap cleanly instead of clipping in narrow windows. It preserves the existing support directory and transcript history format.
 - Primary supported platform: macOS on Apple Silicon (`arm64`).
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target.
 - The current macOS app bundle is `build/GZWhisper.app`.
 - Release package defaults are:
-  - `build/GZWhisper-macOS-1.5.0.zip`
-  - `build/GZWhisper-Installer-1.5.0.dmg`
+  - `build/GZWhisper-macOS-1.5.1.zip`
+  - `build/GZWhisper-Installer-1.5.1.dmg`
 
 ## Project Layout
 
