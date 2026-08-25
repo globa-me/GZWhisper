@@ -4,14 +4,14 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 
 ## Current State
 
-- Current source version: `v1.4.3`, build `150626`.
-- Version `v1.4.3` adds persistent transcription-queue controls: selected runs, ordering, pause/resume, skip, and clearing queued work.
+- Current source version: `v1.5.0`, build `250826`.
+- Version `v1.5.0` compacts the macOS workspace and hardens fully offline Python dependency installation.
 - Primary supported platform: macOS on Apple Silicon (`arm64`).
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target.
 - The current macOS app bundle is `build/GZWhisper.app`.
 - Release package defaults are:
-  - `build/GZWhisper-macOS-1.4.3.zip`
-  - `build/GZWhisper-Installer-1.4.3.dmg`
+  - `build/GZWhisper-macOS-1.5.0.zip`
+  - `build/GZWhisper-Installer-1.5.0.dmg`
 
 ## Project Layout
 
@@ -20,6 +20,7 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 - `Resources/python/` - preferred embedded Python runtime, currently Python 3.12.
 - `Resources/Python.framework/` - legacy/fallback embedded Python framework, currently Python 3.9.
 - `Resources/wheelhouse/` - offline Python dependency wheels for the embedded runtime.
+- `Resources/requirements-macos.txt` - locked Python 3.12 dependency set for macOS 12+ Apple Silicon builds.
 - `Resources/GZWhisper.entitlements` - app signing entitlements.
 - `linux/gzwhisper_linux.py` - Linux app and Windows portable source.
 - `scripts/` - build, packaging, install, and safety scripts.
@@ -29,6 +30,7 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 
 ```bash
 ./scripts/check_repo_security.sh
+./scripts/check_wheelhouse.sh
 ./scripts/make_icon.sh
 ./scripts/build_app.sh
 ./scripts/package_zip.sh

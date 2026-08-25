@@ -29,14 +29,14 @@ After the model is downloaded, transcription runs on the user's machine.
 
 ## macOS: download and run
 
-**Current release: `v1.4.3` (build `150626`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
+**Current release: `v1.5.0` (build `250826`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
 
 Choose one of the files below. The contents are identical; DMG is the most familiar installation format, while ZIP is often more convenient when macOS has to approve an unsigned or non-notarized app.
 
 - [Latest DMG: GZWhisper-Installer.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer.dmg)
 - [Latest ZIP: GZWhisper-macOS.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS.zip)
-- [v1.4.3 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.4.3/GZWhisper-Installer-1.4.3.dmg)
-- [v1.4.3 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.4.3/GZWhisper-macOS-1.4.3.zip)
+- [v1.5.0 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.0/GZWhisper-Installer-1.5.0.dmg)
+- [v1.5.0 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.0/GZWhisper-macOS-1.5.0.zip)
 
 Older releases are available on the [Releases page](https://github.com/globa-me/GZWhisper/releases).
 
@@ -194,12 +194,12 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.4.3.dmg`
+Output: `build/GZWhisper-Installer-1.5.0.dmg`
 
 Optional version/build override for release builds:
 
 ```bash
-APP_VERSION=1.4.3 APP_BUILD=150626 ./scripts/build_app.sh
+APP_VERSION=1.5.0 APP_BUILD=250826 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
 ```
 
@@ -214,7 +214,7 @@ Signing behavior:
 Optional notarization for public DMG builds:
 
 ```bash
-APP_VERSION=1.4.3 APP_BUILD=150626 ./scripts/build_app.sh
+APP_VERSION=1.5.0 APP_BUILD=250826 ./scripts/build_app.sh
 NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 ```
 
@@ -225,7 +225,7 @@ NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 The shipped macOS app now keeps the stable install name and bundle id so dragging a new release into `Applications` updates the previous app in place:
 - app bundle: `build/GZWhisper.app`
 - bundle id: `com.gzakharov.gzwhisper`
-- installer: `build/GZWhisper-Installer-1.4.3.dmg`
+- installer: `build/GZWhisper-Installer-1.5.0.dmg`
 
 If you need a non-versioned installer filename and volume title for release publishing, override:
 
@@ -266,7 +266,7 @@ Output: `build/GZWhisper.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS-1.4.3.zip`
+Output: `build/GZWhisper-macOS-1.5.0.zip`
 
 The ZIP now includes:
 - `GZWhisper.app`
@@ -280,7 +280,7 @@ The ZIP now includes:
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.4.3.dmg`
+Output: `build/GZWhisper-Installer-1.5.0.dmg`
 
 # First run (all platforms)
 
@@ -291,8 +291,8 @@ Output: `build/GZWhisper-Installer-1.4.3.dmg`
 
 ## Notes
 
-- For macOS builds with embedded wheelhouse, Python dependencies install without extra system prompts.
-- Internet is needed for first-time model download (and for dependency install only if no wheelhouse is bundled).
+- For macOS builds with the validated embedded wheelhouse, Python dependencies install fully offline.
+- Internet is needed only for the first-time model download.
 - Once the model is local, transcription can run offline.
 - Linux video transcription requires `ffmpeg`.
 - Windows video transcription requires `ffmpeg.exe` (next to app or in `PATH`).
@@ -305,6 +305,14 @@ Output: `build/GZWhisper-Installer-1.4.3.dmg`
 - `scripts/` — build, package, install, uninstall scripts.
 
 ## Changelog
+
+### 2026-08-25 (v1.5.0, build 250826)
+
+- Compacted the macOS header, model controls, history rows, transcription controls, result actions, and footer to provide more room for transcripts.
+- Replaced the persistent model card with a compact status menu that expands only for setup, progress, or runtime errors.
+- Locked the Python 3.12 Apple Silicon wheelhouse for macOS 12+, including the previously missing `sympy` dependency.
+- Added a release-time clean-venv check that resolves and installs the complete dependency set without network access.
+- Improved dependency diagnostics so offline-wheelhouse and online-PyPI failures are reported separately.
 
 ### 2026-06-15 (v1.4.3, build 150626)
 

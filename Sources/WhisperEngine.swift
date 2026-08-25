@@ -535,6 +535,8 @@ final class WhisperEngine: @unchecked Sendable {
 
         status(L10n.t("engine.installingDeps"))
 
+        var offlineInstallDetails: String?
+
         if let wheelhouseURL = bundledWheelhouseURL() {
             let bundledInstallResult = try ProcessRunner.run(
                 executableURL: pythonURL,
@@ -551,6 +553,8 @@ final class WhisperEngine: @unchecked Sendable {
             if bundledInstallResult.exitCode == 0 {
                 return
             }
+
+            offlineInstallDetails = processFailureDetails(bundledInstallResult)
         }
 
         _ = try ProcessRunner.run(
@@ -564,9 +568,28 @@ final class WhisperEngine: @unchecked Sendable {
         )
 
         guard installResult.exitCode == 0 else {
-            let stderr = installResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw WhisperEngineError.commandFailed(message: L10n.f("engine.installDepsFailed", stderr))
+            var failureSections: [String] = []
+
+            if let offlineInstallDetails, !offlineInstallDetails.isEmpty {
+                failureSections.append(L10n.f("engine.offlineInstallFailed", offlineInstallDetails))
+            }
+
+            failureSections.append(L10n.f("engine.onlineInstallFailed", processFailureDetails(installResult)))
+
+            throw WhisperEngineError.commandFailed(
+                message: L10n.f("engine.installDepsFailed", failureSections.joined(separator: "\n\n"))
+            )
         }
+    }
+
+    private func processFailureDetails(_ result: ProcessResult) -> String {
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stderr.isEmpty {
+            return stderr
+        }
+
+        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stdout.isEmpty ? L10n.t("engine.noProcessOutput") : stdout
     }
 
     private func runPython(arguments: [String]) throws -> ProcessResult {

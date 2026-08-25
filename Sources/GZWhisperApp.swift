@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var historySearchText = ""
     @State private var selectedQueueItemIDs: Set<UUID> = []
     @State private var editingHistoryItemID: UUID?
+    @State private var hoveredHistoryItemID: UUID?
     @State private var historyRenameDraft = ""
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
     @FocusState private var focusedHistoryRenameFieldID: UUID?
@@ -230,48 +231,19 @@ struct ContentView: View {
     }
 
     private var topCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .center, spacing: 10) {
-                    Text("GZWhisper")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .foregroundStyle(accentColor)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text("GZWhisper")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(accentColor)
 
-                    versionBadge
-                }
+                versionBadge
 
-                Text(L10n.t("app.subtitle"))
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+
+                modelControls
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
 
-            modelMiniCard
-                .frame(minWidth: 240, idealWidth: 380, maxWidth: 380)
-        }
-    }
-
-    private var versionBadge: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(viewModel.appVersionLabel)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(pillBackgroundColor, in: Capsule())
-                .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
-
-            Text(viewModel.appBuildLabel)
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.secondary.opacity(isDark ? 0.72 : 0.58))
-                .offset(y: -8)
-        }
-    }
-
-    private var modelMiniCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
             if let runtimeIssueMessage = viewModel.runtimeIssueMessage {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -281,97 +253,115 @@ struct ContentView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                 }
-                .padding(10)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(runtimeIssueBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(runtimeIssueBorder, lineWidth: 1))
             }
 
-            HStack(spacing: 8) {
-                Button(action: viewModel.revealModelInFinder) {
-                    statusPill(title: L10n.t("label.model"), value: viewModel.modelStatus)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasConnectedModel)
-                .help(L10n.t("help.openModelFolder"))
-
-                Spacer(minLength: 8)
-
-                if viewModel.hasConnectedModel {
-                    Button(action: viewModel.deleteModel) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .disabled(!viewModel.canDeleteModel)
-                    .help(L10n.t("help.deleteModel"))
-                } else {
-                    Button(action: viewModel.downloadModelWithFolderPrompt) {
-                        Label(viewModel.isDownloadingModel ? L10n.t("button.downloading") : L10n.t("button.downloadModel"), systemImage: "arrow.down.circle")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
-
-                    Button(action: viewModel.connectExistingLocalModel) {
-                        Label(L10n.t("button.connectLocal"), systemImage: "externaldrive")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
-                }
-            }
-
-            HStack(spacing: 5) {
-                Text(L10n.t("label.modelSource"))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-
-                if viewModel.modelSourceText == L10n.t("status.sourceLocalFolder") {
-                    Text(viewModel.modelSourceText)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else {
-                    Link("Hugging Face", destination: viewModel.modelHubURL)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                }
-            }
-
-            if !viewModel.modelLocationText.isEmpty {
-                Text(viewModel.modelLocationText)
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
             if viewModel.shouldShowDownloadProgress {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(viewModel.downloadSourceText)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(accentColor)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    if viewModel.hasKnownDownloadTotal {
-                        ProgressView(value: viewModel.downloadProgressFraction)
-                            .progressViewStyle(.linear)
-                    } else {
-                        ProgressView()
-                            .progressViewStyle(.linear)
-                    }
-
-                    Text(viewModel.downloadProgressText)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
+                downloadProgress
             }
         }
-        .padding(14)
-        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+    }
+
+    private var versionBadge: some View {
+        HStack(alignment: .center, spacing: 4) {
+            Text(viewModel.appVersionLabel)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(pillBackgroundColor, in: Capsule())
+                .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
+        }
+        .help("Build \(viewModel.appBuildLabel)")
+    }
+
+    @ViewBuilder
+    private var modelControls: some View {
+        if viewModel.hasConnectedModel {
+            Menu {
+                Button(action: viewModel.revealModelInFinder) {
+                    Label(L10n.t("help.openModelFolder"), systemImage: "folder")
+                }
+
+                Button(action: viewModel.connectExistingLocalModel) {
+                    Label(L10n.t("button.connectLocal"), systemImage: "externaldrive")
+                }
+                .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
+
+                Link("Hugging Face", destination: viewModel.modelHubURL)
+
+                Divider()
+
+                Button(action: viewModel.deleteModel) {
+                    Label(L10n.t("help.deleteModel"), systemImage: "trash")
+                }
+                .disabled(!viewModel.canDeleteModel)
+            } label: {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 7, height: 7)
+
+                    Text(viewModel.modelStatus)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(1)
+                }
+                .font(.system(size: 12, design: .rounded))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(pillBackgroundColor, in: Capsule())
+                .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 360, alignment: .trailing)
+            .help(viewModel.modelLocationText)
+        } else {
+            Button(action: viewModel.downloadModelWithFolderPrompt) {
+                Label(viewModel.isDownloadingModel ? L10n.t("button.downloading") : L10n.t("button.downloadModel"), systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
+
+            Button(action: viewModel.connectExistingLocalModel) {
+                Label(L10n.t("button.connectLocal"), systemImage: "externaldrive")
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isDownloadingModel || viewModel.isTranscribing || viewModel.runtimeIssueMessage != nil)
+        }
+    }
+
+    private var downloadProgress: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(viewModel.downloadSourceText)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(accentColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+
+                Text(viewModel.downloadProgressText)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            if viewModel.hasKnownDownloadTotal {
+                ProgressView(value: viewModel.downloadProgressFraction)
+                    .progressViewStyle(.linear)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.linear)
+            }
+        }
     }
 
     private var workspaceBody: some View {
@@ -392,15 +382,13 @@ struct ContentView: View {
     }
 
     private var inputCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Button(action: { isHistoryVisible.toggle() }) {
-                    Label(
-                        isHistoryVisible ? L10n.t("button.hideHistory") : L10n.t("button.showHistory"),
-                        systemImage: "sidebar.left"
-                    )
+                    Image(systemName: "sidebar.left")
                 }
                 .buttonStyle(.bordered)
+                .help(isHistoryVisible ? L10n.t("button.hideHistory") : L10n.t("button.showHistory"))
 
                 Button(action: viewModel.chooseFiles) {
                     Label(L10n.t("button.addMedia"), systemImage: "plus")
@@ -424,6 +412,7 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
                 .disabled(!canUsePrimaryQueueButton)
+                .fixedSize(horizontal: true, vertical: false)
 
                 Menu {
                     Button(action: transcribeSelectedQueueTargets) {
@@ -453,30 +442,32 @@ struct ContentView: View {
                     }
                     .disabled(!viewModel.canClearQueue)
                 } label: {
-                    Label(L10n.t("button.queueActions"), systemImage: "ellipsis.circle")
+                    Image(systemName: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
                 .help(L10n.t("button.queueActions"))
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Picker(L10n.t("label.language"), selection: $viewModel.selectedLanguage) {
                     ForEach(viewModel.languageOptions, id: \.code) { option in
                         Text(option.title).tag(option.code)
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(minWidth: 120, idealWidth: 160, maxWidth: 200)
+                .frame(minWidth: 105, idealWidth: 130, maxWidth: 150)
 
                 statusPill(title: L10n.t("label.detectedLanguage"), value: viewModel.detectedLanguage)
+                    .fixedSize(horizontal: true, vertical: false)
 
                 Spacer(minLength: 8)
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Text(L10n.t("label.recordMode"))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
 
                 Picker("", selection: $viewModel.selectedRecordingMode) {
                     ForEach(viewModel.recordingModeOptions) { mode in
@@ -485,7 +476,7 @@ struct ContentView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(minWidth: 160, idealWidth: 220, maxWidth: 280)
+                .frame(minWidth: 145, idealWidth: 190, maxWidth: 230)
                 .disabled(viewModel.isRecording)
 
                 Button(action: viewModel.isRecording ? viewModel.stopRecording : viewModel.startRecording) {
@@ -497,6 +488,7 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(viewModel.isRecording ? .red : Color(red: 0.75, green: 0.10, blue: 0.14))
                 .disabled(viewModel.isRecording ? !viewModel.canStopRecording : !viewModel.canStartRecording)
+                .fixedSize(horizontal: true, vertical: false)
 
                 if viewModel.isRecording {
                     Button(action: viewModel.toggleRecordingPause) {
@@ -518,45 +510,30 @@ struct ContentView: View {
                 }
 
                 statusPill(title: L10n.t("label.recording"), value: viewModel.recordingElapsedText)
+                    .fixedSize(horizontal: true, vertical: false)
 
                 Menu {
                     Toggle(L10n.t("setting.hudAutoShow"), isOn: $viewModel.shouldShowHUDOnRecordingStart)
                     Toggle(L10n.t("setting.autoPauseSleep"), isOn: $viewModel.shouldAutoPauseOnSleep)
                 } label: {
-                    Label(L10n.t("button.recordingOptions"), systemImage: "slider.horizontal.3")
+                    Image(systemName: "slider.horizontal.3")
                 }
                 .help(L10n.t("help.recordingOptions"))
+                .fixedSize(horizontal: true, vertical: false)
 
                 Spacer(minLength: 8)
             }
-
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1.4, dash: [6]))
-                .foregroundStyle(isDropTargeted ? accentColor : cardBorderColor)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(editorBackgroundColor.opacity(0.4))
-                )
-                .overlay(alignment: .leading) {
-                    Text(L10n.t("text.dropFiles"))
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                }
-                .frame(height: 40)
         }
-        .padding(14)
-        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+        .padding(12)
+        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
     }
 
     private var historyPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Text(L10n.t("title.history"))
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
-
-                Spacer()
 
                 Text(historyCountLabel)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -564,10 +541,13 @@ struct ContentView: View {
                     .padding(.vertical, 4)
                     .background(pillBackgroundColor, in: Capsule())
                     .overlay(Capsule().stroke(pillBorderColor, lineWidth: 1))
-            }
 
-            if !viewModel.historyItems.isEmpty {
-                historySearchField
+                Spacer(minLength: 4)
+
+                if !viewModel.historyItems.isEmpty {
+                    historySearchField
+                        .frame(minWidth: 110, idealWidth: 145, maxWidth: 170)
+                }
             }
 
             if viewModel.historyItems.isEmpty {
@@ -584,7 +564,7 @@ struct ContentView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 6) {
                         ForEach(filteredHistoryItems) { item in
                             historyItemRow(item)
                         }
@@ -592,9 +572,9 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(14)
-        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+        .padding(12)
+        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
     }
 
     private var historySearchField: some View {
@@ -615,7 +595,7 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(editorBackgroundColor.opacity(0.65), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(editorBorderColor, lineWidth: 1))
     }
@@ -655,6 +635,7 @@ struct ContentView: View {
                             Text(viewModel.historyDisplayName(for: item))
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .lineLimit(1)
+                                .help(viewModel.historyOriginalNameText(for: item) ?? item.sourceFileName)
                         }
 
                         if let badge = viewModel.historyBadgeText(for: item) {
@@ -671,26 +652,26 @@ struct ContentView: View {
                         }
                     }
 
-                    if let originalName = viewModel.historyOriginalNameText(for: item) {
-                        Text(originalName)
+                    HStack(spacing: 6) {
+                        Text(viewModel.historyMetaText(for: item))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                    }
 
-                    Text(viewModel.historyMetaText(for: item))
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        Text("•")
+                            .foregroundStyle(.tertiary)
 
-                    Text(viewModel.historyStateLabel(for: item.state))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(stateColor(for: item.state))
+                        Text(viewModel.historyStateLabel(for: item.state))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(stateColor(for: item.state))
+                            .lineLimit(1)
 
-                    if let queuePosition = viewModel.queuePositionText(for: item) {
-                        Text(queuePosition)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
+                        if let queuePosition = viewModel.queuePositionText(for: item) {
+                            Text(queuePosition)
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
 
@@ -775,6 +756,13 @@ struct ContentView: View {
                         .disabled(!viewModel.canDeleteHistoryItem(item))
                     }
                 }
+                .opacity(
+                    editingHistoryItemID == item.id
+                        || hoveredHistoryItemID == item.id
+                        || viewModel.selectedHistoryItemID == item.id
+                        ? 1
+                        : 0
+                )
             }
 
             if item.state == .processing {
@@ -798,7 +786,8 @@ struct ContentView: View {
                     .lineLimit(2)
             }
         }
-        .padding(10)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(
@@ -817,6 +806,13 @@ struct ContentView: View {
                 return
             }
             viewModel.openHistoryItem(item.id)
+        }
+        .onHover { isHovered in
+            if isHovered {
+                hoveredHistoryItemID = item.id
+            } else if hoveredHistoryItemID == item.id {
+                hoveredHistoryItemID = nil
+            }
         }
     }
 
@@ -856,21 +852,22 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                     .disabled(viewModel.transcriptText.isEmpty)
 
-                Button(L10n.t("button.saveTXT"), action: viewModel.saveAsText)
-                    .buttonStyle(.bordered)
-                    .disabled(viewModel.transcriptText.isEmpty)
-
-                Button(L10n.t("button.saveJSON"), action: viewModel.saveAsJSON)
-                    .buttonStyle(.bordered)
+                Menu {
+                    Button(L10n.t("button.saveTXT"), action: viewModel.saveAsText)
+                    Button(L10n.t("button.saveJSON"), action: viewModel.saveAsJSON)
+                } label: {
+                    Label(L10n.t("button.export"), systemImage: "square.and.arrow.up")
+                }
+                .menuStyle(.borderlessButton)
                     .disabled(viewModel.transcriptText.isEmpty)
             }
 
             editorTextView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
-        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+        .padding(14)
+        .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
     }
 
     @ViewBuilder
@@ -912,36 +909,24 @@ struct ContentView: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
-                Menu {
-                    Button(L10n.t("button.copyDebugInfo"), action: viewModel.copyDebugInfo)
-                    Button(L10n.t("button.openRuntimeFolder"), action: viewModel.revealRuntimeFolderInFinder)
-                } label: {
-                    Label(L10n.t("button.debug"), systemImage: "ladybug")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(accentColor)
-                }
-                .menuStyle(.borderlessButton)
+            Menu {
+                Button(L10n.t("button.copyDebugInfo"), action: viewModel.copyDebugInfo)
+                Button(L10n.t("button.openRuntimeFolder"), action: viewModel.revealRuntimeFolderInFinder)
 
-                Text("|")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
+                Divider()
 
                 Link("GitHub", destination: URL(string: "https://github.com/globa-me/GZWhisper")!)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(accentColor)
-
-                Text("|")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-
                 Link(L10n.t("footer.author"), destination: URL(string: "https://zakharov.asia/")!)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+            } label: {
+                Image(systemName: "ladybug")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(accentColor)
             }
+            .menuStyle(.borderlessButton)
+            .help(L10n.t("button.debug"))
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
         .background(footerBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
     }

@@ -17,8 +17,8 @@ MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
 ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-1}"
-APP_VERSION="${APP_VERSION:-1.4.3}"
-APP_BUILD="${APP_BUILD:-150626}"
+APP_VERSION="${APP_VERSION:-1.5.0}"
+APP_BUILD="${APP_BUILD:-250826}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-arm64"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
@@ -134,11 +134,21 @@ fi
 
 EMBEDDED_PY_VERSION="$(PYTHONDONTWRITEBYTECODE=1 "$EMBEDDED_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
 EMBEDDED_PY_MINOR="$(PYTHONDONTWRITEBYTECODE=1 "$EMBEDDED_PYTHON" -c 'import sys; print(sys.version_info.minor)')"
-if [[ "$EMBEDDED_PY_MINOR" -lt 10 || "$EMBEDDED_PY_MINOR" -gt 12 ]]; then
+if [[ "$EMBEDDED_PY_MINOR" -ne 12 ]]; then
   echo "Embedded Python runtime version is unsupported: $EMBEDDED_PY_VERSION"
-  echo "Use Python 3.10-3.12 (recommended: 3.12) in scripts/prepare_embedded_python.sh"
+  echo "Use Python 3.12 so the runtime matches the locked macOS wheelhouse."
   exit 1
 fi
+
+if [[ ! -d "$RESOURCES_DIR/wheelhouse" ]]; then
+  echo "Bundled wheelhouse not found. Run scripts/prepare_embedded_python.sh first."
+  exit 1
+fi
+
+"$ROOT_DIR/scripts/check_wheelhouse.sh" \
+  "$EMBEDDED_PYTHON" \
+  "$RESOURCES_DIR/wheelhouse" \
+  "$ROOT_DIR/Resources/requirements-macos.txt"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

@@ -17,6 +17,8 @@ INCLUDE_WHEELHOUSE="${INCLUDE_WHEELHOUSE:-1}"
 FRAMEWORK_DEST="$ROOT_DIR/Resources/Python.framework"
 RUNTIME_DEST="$ROOT_DIR/Resources/python"
 WHEELHOUSE_DEST="$ROOT_DIR/Resources/wheelhouse"
+REQUIREMENTS_FILE="$ROOT_DIR/Resources/requirements-macos.txt"
+TARGET_PLATFORM="${TARGET_PLATFORM:-macosx_12_0_arm64}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   echo "Python executable not found: $PYTHON_BIN"
@@ -39,9 +41,9 @@ PY
 
 PYTHON_MINOR="$("$PYTHON_BIN" -c 'import sys; print(sys.version_info.minor)')"
 PYTHON_VERSION="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
-if [[ "$PYTHON_MINOR" -lt 10 || "$PYTHON_MINOR" -gt 12 ]]; then
+if [[ "$PYTHON_MINOR" -ne 12 ]]; then
   echo "Unsupported Python version for embedded runtime: $PYTHON_VERSION"
-  echo "Use Python 3.10-3.12 (recommended: 3.12)."
+  echo "Use Python 3.12 so the runtime matches the locked macOS wheelhouse."
   exit 1
 fi
 
@@ -75,9 +77,14 @@ if [[ "$INCLUDE_WHEELHOUSE" == "1" ]]; then
   # Download ASR runtime wheels.
   "$PYTHON_BIN" -m pip download \
     --only-binary=:all: \
+    --platform "$TARGET_PLATFORM" \
+    --python-version 312 \
+    --implementation cp \
+    --abi cp312 \
     --dest "$WHEELHOUSE_DEST" \
-    faster-whisper \
-    huggingface_hub
+    --requirement "$REQUIREMENTS_FILE"
+
+  "$ROOT_DIR/scripts/check_wheelhouse.sh" "$PYTHON_BIN" "$WHEELHOUSE_DEST" "$REQUIREMENTS_FILE"
 fi
 
 echo "Embedded runtime prepared: $EMBEDDED_RUNTIME_DESC"
