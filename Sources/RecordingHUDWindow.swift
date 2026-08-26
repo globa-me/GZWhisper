@@ -6,7 +6,7 @@ final class RecordingHUDWindowController {
 
     init(viewModel: AppViewModel) {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 280, height: 134),
+            contentRect: NSRect(x: 0, y: 0, width: 238, height: 90),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -24,7 +24,7 @@ final class RecordingHUDWindowController {
         panel.titlebarAppearsTransparent = true
 
         let hosting = NSHostingView(rootView: RecordingHUDView(viewModel: viewModel))
-        hosting.frame = NSRect(x: 0, y: 0, width: 280, height: 134)
+        hosting.frame = NSRect(x: 0, y: 0, width: 238, height: 90)
         panel.contentView = hosting
 
         self.panel = panel
@@ -67,7 +67,7 @@ private struct RecordingHUDView: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Circle()
                     .fill(Color.red)
@@ -78,37 +78,45 @@ private struct RecordingHUDView: View {
                 Button(action: viewModel.hideRecordingHUD) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
-                        .frame(width: 18, height: 18)
+                        .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.plain)
+                .help(L10n.t("help.hideRecordingHUD"))
+                .accessibilityLabel(L10n.t("help.hideRecordingHUD"))
             }
 
-            Text(viewModel.recordingElapsedText)
-                .font(.system(size: 22, weight: .bold, design: .monospaced))
-                .lineLimit(1)
-
             HStack(spacing: 8) {
+                Text(viewModel.recordingElapsedText)
+                    .font(.system(size: 20, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
                 Button(action: viewModel.toggleRecordingPause) {
-                    Label(
-                        viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"),
-                        systemImage: viewModel.isRecordingPaused ? "play.fill" : "pause.fill"
-                    )
+                    Image(systemName: viewModel.isRecordingPaused ? "play.fill" : "pause.fill")
+                        .frame(minWidth: 18, minHeight: 18)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(viewModel.isRecordingPaused ? !viewModel.canResumeRecording : !viewModel.canPauseRecording)
+                .help(viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"))
+                .accessibilityLabel(viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"))
 
                 Button(action: viewModel.stopRecording) {
-                    Label(L10n.t("button.stopRecording"), systemImage: "stop.fill")
+                    Image(systemName: "stop.fill")
+                        .frame(minWidth: 18, minHeight: 18)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .tint(.red)
                 .disabled(!viewModel.canStopRecording)
+                .help(L10n.t("button.stopRecording"))
+                .accessibilityLabel(L10n.t("button.stopRecording"))
             }
         }
-        .padding(12)
-        .frame(width: 280, height: 134, alignment: .topLeading)
+        .padding(10)
+        .frame(width: 238, height: 90, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.black.opacity(0.20))

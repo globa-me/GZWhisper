@@ -21,6 +21,20 @@ struct GZWhisperApp: App {
     }
 }
 
+private struct HistoryHoverView<Content: View>: View {
+    @State private var isHovered = false
+    private let content: (Bool) -> Content
+
+    init(@ViewBuilder content: @escaping (Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(isHovered)
+            .onHover { isHovered = $0 }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
     @Environment(\.colorScheme) private var colorScheme
@@ -28,12 +42,15 @@ struct ContentView: View {
     @State private var isHistoryVisible = true
     @State private var isDropTargeted = false
     @State private var historySearchText = ""
+    @State private var isHistorySearchExpanded = false
+    @State private var historySearchResults: [TranscriptHistoryItem] = []
+    @State private var historySearchTask: Task<Void, Never>?
     @State private var selectedQueueItemIDs: Set<UUID> = []
     @State private var editingHistoryItemID: UUID?
-    @State private var hoveredHistoryItemID: UUID?
     @State private var historyRenameDraft = ""
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
     @FocusState private var focusedHistoryRenameFieldID: UUID?
+    @FocusState private var isHistorySearchFocused: Bool
 
     private var isDark: Bool {
         colorScheme == .dark
@@ -98,7 +115,12 @@ struct ContentView: View {
     }
 
     private var filteredHistoryItems: [TranscriptHistoryItem] {
-        viewModel.filteredHistoryItems(matching: historySearchText)
+        guard isHistorySearchActive else {
+            return viewModel.historyItems
+        }
+
+        let currentIDs = Set(viewModel.historyItems.map(\.id))
+        return historySearchResults.filter { currentIDs.contains($0.id) }
     }
 
     private var isHistorySearchActive: Bool {
@@ -206,13 +228,18 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.initialize()
+            historySearchResults = viewModel.historyItems
             if recordingHUDWindowController == nil {
                 recordingHUDWindowController = RecordingHUDWindowController(viewModel: viewModel)
             }
             updateRecordingHUDWindowVisibility()
         }
         .onDisappear {
+            historySearchTask?.cancel()
             recordingHUDWindowController?.hide()
+        }
+        .onChange(of: historySearchText) { _ in
+            scheduleHistorySearch()
         }
         .onChange(of: viewModel.isRecording) { _ in
             updateRecordingHUDWindowVisibility()
@@ -418,19 +445,14 @@ struct ContentView: View {
     }
 
     private var queueControlsCompact: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                historyToggleButton
-                addMediaButton
-                queueSummary
-                Spacer(minLength: 4)
-            }
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                primaryQueueButton
-                queueActionsMenu
-            }
+        HStack(spacing: 8) {
+            historyToggleButton
+            addMediaButtonCompact
+            queueSummary
+                .layoutPriority(1)
+            Spacer(minLength: 4)
+            primaryQueueButtonCompact
+            queueActionsMenu
         }
     }
 
@@ -451,6 +473,16 @@ struct ContentView: View {
         .disabled(viewModel.isDownloadingModel || viewModel.isRecording)
     }
 
+    private var addMediaButtonCompact: some View {
+        Button(action: viewModel.chooseFiles) {
+            Image(systemName: "plus")
+        }
+        .buttonStyle(.bordered)
+        .disabled(viewModel.isDownloadingModel || viewModel.isRecording)
+        .help(L10n.t("button.addMedia"))
+        .accessibilityLabel(L10n.t("button.addMedia"))
+    }
+
     private var queueSummary: some View {
         Text(viewModel.queueSummaryText)
             .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -467,6 +499,17 @@ struct ContentView: View {
         .buttonStyle(.borderedProminent)
         .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
         .disabled(!canUsePrimaryQueueButton)
+    }
+
+    private var primaryQueueButtonCompact: some View {
+        Button(action: primaryQueueAction) {
+            Image(systemName: primaryQueueButtonIcon)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(viewModel.isTranscribing ? .red : Color(red: 0.05, green: 0.45, blue: 0.35))
+        .disabled(!canUsePrimaryQueueButton)
+        .help(primaryQueueButtonTitle)
+        .accessibilityLabel(primaryQueueButtonTitle)
     }
 
     private var queueActionsMenu: some View {
@@ -553,12 +596,8 @@ struct ContentView: View {
             }
 
             HStack(spacing: 8) {
-                recordingPrimaryButton
-                recordingSessionButtons
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
+                recordingPrimaryButtonCompact
+                recordingSessionButtonsCompact
                 recordingStatus
                 recordingOptionsMenu
                 Spacer(minLength: 0)
@@ -598,6 +637,17 @@ struct ContentView: View {
         .disabled(viewModel.isRecording ? !viewModel.canStopRecording : !viewModel.canStartRecording)
     }
 
+    private var recordingPrimaryButtonCompact: some View {
+        Button(action: viewModel.isRecording ? viewModel.stopRecording : viewModel.startRecording) {
+            Image(systemName: viewModel.isRecording ? "stop.fill" : "record.circle")
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(viewModel.isRecording ? .red : Color(red: 0.75, green: 0.10, blue: 0.14))
+        .disabled(viewModel.isRecording ? !viewModel.canStopRecording : !viewModel.canStartRecording)
+        .help(viewModel.isRecording ? L10n.t("button.stopRecording") : L10n.t("button.startRecording"))
+        .accessibilityLabel(viewModel.isRecording ? L10n.t("button.stopRecording") : L10n.t("button.startRecording"))
+    }
+
     @ViewBuilder
     private var recordingSessionButtons: some View {
         if viewModel.isRecording {
@@ -621,6 +671,28 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var recordingSessionButtonsCompact: some View {
+        if viewModel.isRecording {
+            Button(action: viewModel.toggleRecordingPause) {
+                Image(systemName: viewModel.isRecordingPaused ? "play.fill" : "pause.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isRecordingPaused ? !viewModel.canResumeRecording : !viewModel.canPauseRecording)
+            .help(viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"))
+            .accessibilityLabel(viewModel.isRecordingPaused ? L10n.t("button.resumeRecording") : L10n.t("button.pauseRecording"))
+
+            if !viewModel.isRecordingHUDVisible {
+                Button(action: viewModel.showRecordingHUD) {
+                    Image(systemName: "rectangle.topthird.inset.filled")
+                }
+                .buttonStyle(.bordered)
+                .help(L10n.t("help.showRecordingHUD"))
+                .accessibilityLabel(L10n.t("help.showRecordingHUD"))
+            }
+        }
+    }
+
     private var recordingStatus: some View {
         statusPill(title: L10n.t("label.recording"), value: viewModel.recordingElapsedText)
     }
@@ -638,6 +710,12 @@ struct ContentView: View {
     private var historyPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             adaptiveHistoryHeader
+
+            if isHistorySearchExpanded && !viewModel.historyItems.isEmpty {
+                historySearchField
+                    .frame(maxWidth: .infinity)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             if viewModel.historyItems.isEmpty {
                 Text(L10n.t("text.historyEmpty"))
@@ -659,8 +737,11 @@ struct ContentView: View {
                         }
                     }
                 }
+                .layoutPriority(1)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: isHistorySearchExpanded)
+        .clipped()
         .padding(12)
         .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
@@ -668,39 +749,17 @@ struct ContentView: View {
 
     @ViewBuilder
     private var adaptiveHistoryHeader: some View {
-        if #available(macOS 13.0, *) {
-            ViewThatFits(in: .horizontal) {
-                historyHeaderWide
-                historyHeaderCompact
-            }
-        } else {
-            historyHeaderCompact
-        }
-    }
-
-    private var historyHeaderWide: some View {
         HStack(spacing: 8) {
             historyTitleAndCount
             Spacer(minLength: 4)
 
             if !viewModel.historyItems.isEmpty {
-                historySearchField
-                    .frame(width: 145)
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private var historyHeaderCompact: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                historyTitleAndCount
-                Spacer(minLength: 0)
-            }
-
-            if !viewModel.historyItems.isEmpty {
-                historySearchField
-                    .frame(maxWidth: .infinity)
+                Button(action: toggleHistorySearch) {
+                    Image(systemName: isHistorySearchExpanded ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                }
+                .buttonStyle(.bordered)
+                .help(L10n.t("placeholder.historySearch"))
+                .accessibilityLabel(L10n.t("placeholder.historySearch"))
             }
         }
     }
@@ -728,6 +787,8 @@ struct ContentView: View {
             TextField(L10n.t("placeholder.historySearch"), text: $historySearchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
+                .focused($isHistorySearchFocused)
+                .onExitCommand(perform: closeHistorySearch)
 
             if isHistorySearchActive {
                 Button(action: { historySearchText = "" }) {
@@ -743,10 +804,68 @@ struct ContentView: View {
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(editorBorderColor, lineWidth: 1))
     }
 
+    private func toggleHistorySearch() {
+        if isHistorySearchExpanded {
+            closeHistorySearch()
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.2)) {
+            isHistorySearchExpanded = true
+        }
+        DispatchQueue.main.async {
+            isHistorySearchFocused = true
+        }
+    }
+
+    private func closeHistorySearch() {
+        historySearchText = ""
+        isHistorySearchFocused = false
+        withAnimation(.easeOut(duration: 0.2)) {
+            isHistorySearchExpanded = false
+        }
+    }
+
+    private func scheduleHistorySearch() {
+        historySearchTask?.cancel()
+
+        guard isHistorySearchActive else {
+            historySearchResults = viewModel.historyItems
+            return
+        }
+
+        let query = historySearchText
+        historySearchTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 180_000_000)
+            } catch {
+                return
+            }
+
+            guard
+                !Task.isCancelled,
+                query == historySearchText,
+                let results = await viewModel.filteredHistoryItems(matching: query),
+                !Task.isCancelled,
+                query == historySearchText
+            else {
+                return
+            }
+
+            historySearchResults = results
+        }
+    }
+
     private func historyItemRow(_ item: TranscriptHistoryItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let canRunItem = viewModel.canRunHistoryItem(item)
+        let badgeText = viewModel.historyBadgeText(for: item)
+        let badgeHelp = viewModel.historyBadgeHelp(for: item) ?? ""
+        let metaText = viewModel.historyMetaText(for: item)
+
+        return HistoryHoverView { isHovered in
+            VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
-                if viewModel.canRunHistoryItem(item) {
+                if canRunItem {
                     Button(action: { toggleQueueSelection(for: item.id) }) {
                         Image(systemName: selectedQueueItemIDs.contains(item.id) ? "checkmark.square.fill" : "square")
                             .foregroundStyle(selectedQueueItemIDs.contains(item.id) ? accentColor : .secondary)
@@ -760,7 +879,7 @@ struct ContentView: View {
                 stateIndicator(for: item)
                     .padding(.top, 1)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
                         if editingHistoryItemID == item.id {
                             TextField("", text: $historyRenameDraft, prompt: Text(item.sourceFileName))
@@ -781,7 +900,7 @@ struct ContentView: View {
                                 .help(viewModel.historyOriginalNameText(for: item) ?? item.sourceFileName)
                         }
 
-                        if let badge = viewModel.historyBadgeText(for: item) {
+                        if let badge = badgeText {
                             Text(badge)
                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                                 .foregroundStyle(Color(red: 0.40, green: 0.30, blue: 0.02))
@@ -791,19 +910,18 @@ struct ContentView: View {
                                     Capsule(style: .continuous)
                                         .fill(Color(red: 1.0, green: 0.89, blue: 0.45).opacity(isDark ? 0.85 : 1.0))
                                 )
-                                .help(viewModel.historyBadgeHelp(for: item) ?? "")
+                                .help(badgeHelp)
                         }
                     }
 
+                    Text(metaText)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(metaText)
+
                     HStack(spacing: 6) {
-                        Text(viewModel.historyMetaText(for: item))
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-
-                        Text("•")
-                            .foregroundStyle(.tertiary)
-
                         Text(viewModel.historyStateLabel(for: item.state))
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(stateColor(for: item.state))
@@ -817,10 +935,12 @@ struct ContentView: View {
                         }
                     }
                 }
+                .layoutPriority(1)
 
                 Spacer(minLength: 4)
 
-                HStack(spacing: 4) {
+                if editingHistoryItemID == item.id || isHovered {
+                    HStack(spacing: 4) {
                     if editingHistoryItemID == item.id {
                         Button(action: { commitHistoryRename(for: item.id) }) {
                             Image(systemName: "checkmark")
@@ -898,14 +1018,8 @@ struct ContentView: View {
                         .buttonStyle(.borderless)
                         .disabled(!viewModel.canDeleteHistoryItem(item))
                     }
+                    }
                 }
-                .opacity(
-                    editingHistoryItemID == item.id
-                        || hoveredHistoryItemID == item.id
-                        || viewModel.selectedHistoryItemID == item.id
-                        ? 1
-                        : 0
-                )
             }
 
             if item.state == .processing {
@@ -928,33 +1042,27 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    viewModel.selectedHistoryItemID == item.id
-                        ? accentColor.opacity(isDark ? 0.24 : 0.12)
-                        : editorBackgroundColor.opacity(0.6)
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(viewModel.selectedHistoryItemID == item.id ? accentColor.opacity(0.45) : editorBorderColor, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard editingHistoryItemID != item.id else {
-                return
             }
-            viewModel.openHistoryItem(item.id)
-        }
-        .onHover { isHovered in
-            if isHovered {
-                hoveredHistoryItemID = item.id
-            } else if hoveredHistoryItemID == item.id {
-                hoveredHistoryItemID = nil
+            .padding(.horizontal, 9)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        viewModel.selectedHistoryItemID == item.id
+                            ? accentColor.opacity(isDark ? 0.24 : 0.12)
+                            : editorBackgroundColor.opacity(0.6)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(viewModel.selectedHistoryItemID == item.id ? accentColor.opacity(0.45) : editorBorderColor, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard editingHistoryItemID != item.id else {
+                    return
+                }
+                viewModel.openHistoryItem(item.id)
             }
         }
     }
@@ -1100,34 +1208,97 @@ struct ContentView: View {
     }
 
     private var footerBar: some View {
-        HStack {
-            Text(viewModel.statusMessage)
+        HStack(spacing: 10) {
+            footerStatusContent
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .layoutPriority(1)
 
             Spacer()
 
-            Menu {
-                Button(L10n.t("button.copyDebugInfo"), action: viewModel.copyDebugInfo)
-                Button(L10n.t("button.openRuntimeFolder"), action: viewModel.revealRuntimeFolderInFinder)
+            if let deletedName = viewModel.pendingHistoryDeletionName {
+                HStack(spacing: 6) {
+                    Text(L10n.f("status.historyDeleted", deletedName))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-                Divider()
-
-                Link("GitHub", destination: URL(string: "https://github.com/globa-me/GZWhisper")!)
-                Link(L10n.t("footer.author"), destination: URL(string: "https://zakharov.asia/")!)
-            } label: {
-                Image(systemName: "ladybug")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(accentColor)
+                    Button(L10n.t("button.undo"), action: viewModel.undoHistoryDeletion)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!viewModel.canUndoHistoryDeletion)
+                }
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
-            .menuStyle(.borderlessButton)
-            .help(L10n.t("button.debug"))
+
+            debugMenu
         }
+        .animation(.easeOut(duration: 0.2), value: viewModel.pendingHistoryDeletionName)
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
         .background(footerBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(cardBorderColor, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var footerStatusContent: some View {
+        if !viewModel.isTranscribing && !viewModel.isRecording {
+            Text(viewModel.statusMessage)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else {
+            HStack(spacing: 8) {
+                if viewModel.isTranscribing {
+                    Text(transcriptionFooterText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                if viewModel.isTranscribing && viewModel.isRecording {
+                    Divider()
+                        .frame(height: 14)
+                }
+
+                if viewModel.isRecording {
+                    Text(recordingFooterText)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var transcriptionFooterText: String {
+        let fileName = viewModel.currentTranscribingFileName.isEmpty
+            ? L10n.t("button.transcribing")
+            : viewModel.currentTranscribingFileName
+        if let progress = viewModel.activeProgressFraction {
+            return "\(L10n.t("label.transcription")): \(fileName) · \(String(format: "%.0f%%", progress * 100))"
+        }
+        return "\(L10n.t("label.transcription")): \(fileName)"
+    }
+
+    private var recordingFooterText: String {
+        let pauseSuffix = viewModel.isRecordingPaused ? " · \(L10n.t("button.pauseRecording"))" : ""
+        return "\(L10n.t("label.recording")): \(viewModel.recordingElapsedText)\(pauseSuffix)"
+    }
+
+    private var debugMenu: some View {
+        Menu {
+            Button(L10n.t("button.copyDebugInfo"), action: viewModel.copyDebugInfo)
+            Button(L10n.t("button.openRuntimeFolder"), action: viewModel.revealRuntimeFolderInFinder)
+
+            Divider()
+
+            Link("GitHub", destination: URL(string: "https://github.com/globa-me/GZWhisper")!)
+            Link(L10n.t("footer.author"), destination: URL(string: "https://zakharov.asia/")!)
+        } label: {
+            Image(systemName: "ladybug")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accentColor)
+        }
+        .menuStyle(.borderlessButton)
+        .help(L10n.t("button.debug"))
     }
 
     private var dropOverlay: some View {

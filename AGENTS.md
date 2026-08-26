@@ -6,6 +6,11 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 
 - Current source version: `v1.5.1`, build `2508261`.
 - Version `v1.5.1` adds responsive wide/compact SwiftUI layouts so controls wrap cleanly instead of clipping in narrow windows. It preserves the existing support directory and transcript history format.
+- Unreleased macOS work after `v1.5.1` further compacts the queue and recording controls, enlarges history metadata rows, adds an in-list animated history search, and reduces the recording HUD to `238x90` points.
+- History search is debounced and runs through an actor-backed normalized index, keeping transcript reads, file metadata checks, and full-text matching off the main actor. Search results are computed once per settled query rather than repeatedly during SwiftUI rendering.
+- History row hover state is local to each row wrapper, so scrolling across the pointer no longer invalidates the entire `ContentView`; repeated row metadata formatting is also avoided.
+- Recording can now start while a transcription queue is active. The footer derives separate live transcription and recording summaries and displays both with a divider.
+- History deletion now has a 15-second single-item undo action. Files remain in place during the undo window and are moved to the macOS Trash when it expires; imported source media is still never deleted unless it is an app-created recording referenced by `audioPath`.
 - Primary supported platform: macOS on Apple Silicon (`arm64`).
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target.
 - The current macOS app bundle is `build/GZWhisper.app`.

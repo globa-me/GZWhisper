@@ -306,6 +306,15 @@ Output: `build/GZWhisper-Installer-1.5.1.dmg`
 
 ## Changelog
 
+### Unreleased
+
+- Compacted narrow-window queue and recording controls with icon variants instead of extra wrapped rows.
+- Expanded history entries so date, duration, state, and queue position remain readable, and added an animated full-width search field inside the history panel.
+- Moved history full-text search to a debounced background index so typing no longer blocks the interface while transcript files are read and matched.
+- Isolated hover updates to individual history rows and eliminated duplicate row metadata formatting for smoother scrolling through long histories.
+- Reduced the floating recording HUD and enabled starting a new recording while transcription is running.
+- Added simultaneous recording/transcription summaries in the footer and a 15-second undo action for history deletion before files move to the macOS Trash.
+
 ### 2026-08-25 (v1.5.1, build 2508261)
 
 - Added responsive wide and compact layouts for queue, recording, history-search, and result-export controls.

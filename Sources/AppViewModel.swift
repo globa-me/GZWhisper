@@ -108,11 +108,86 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     }
 }
 
+private struct HistorySearchSource: Sendable, Equatable {
+    let id: UUID
+    let metadata: String
+    let transcriptPath: String?
+}
+
+private actor HistorySearchIndex {
+    private struct CachedEntry {
+        let source: HistorySearchSource
+        let transcriptModificationDate: Date?
+        let normalizedText: String
+    }
+
+    private var entries: [UUID: CachedEntry] = [:]
+
+    func matchingItemIDs(query: String, sources: [HistorySearchSource]) -> Set<UUID>? {
+        let normalizedQuery = Self.normalized(query)
+        guard !normalizedQuery.isEmpty else {
+            return Set(sources.map(\.id))
+        }
+
+        var matches: Set<UUID> = []
+        let activeIDs = Set(sources.map(\.id))
+        entries = entries.filter { activeIDs.contains($0.key) }
+
+        for source in sources {
+            guard !Task.isCancelled else {
+                return nil
+            }
+
+            let modificationDate = source.transcriptPath.flatMap(Self.modificationDate)
+            let normalizedText: String
+
+            if
+                let cached = entries[source.id],
+                cached.source == source,
+                cached.transcriptModificationDate == modificationDate
+            {
+                normalizedText = cached.normalizedText
+            } else {
+                let transcriptText = source.transcriptPath.flatMap { path in
+                    try? String(contentsOfFile: path, encoding: .utf8)
+                } ?? ""
+                normalizedText = Self.normalized(source.metadata + "\n" + transcriptText)
+                entries[source.id] = CachedEntry(
+                    source: source,
+                    transcriptModificationDate: modificationDate,
+                    normalizedText: normalizedText
+                )
+            }
+
+            if normalizedText.contains(normalizedQuery) {
+                matches.insert(source.id)
+            }
+        }
+
+        return matches
+    }
+
+    private static func modificationDate(for path: String) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return attributes?[.modificationDate] as? Date
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
-    private struct TranscriptSearchCacheEntry {
-        let modificationDate: Date?
-        let normalizedText: String
+    private struct PendingHistoryDeletion {
+        let item: TranscriptHistoryItem
+        let originalIndex: Int
+        let wasSelected: Bool
     }
 
     @Published var modelStatus = L10n.t("status.modelNotLoaded")
@@ -148,6 +223,7 @@ final class AppViewModel: ObservableObject {
     @Published var isStoppingRecording = false
     @Published var recordingElapsedText = "00:00:00"
     @Published var isRecordingHUDVisible = true
+    @Published private(set) var pendingHistoryDeletionName: String?
     @Published var shouldShowHUDOnRecordingStart = true {
         didSet {
             UserDefaults.standard.set(shouldShowHUDOnRecordingStart, forKey: Self.showHUDOnRecordingStartKey)
@@ -192,12 +268,14 @@ final class AppViewModel: ObservableObject {
     private var recordingPausedTotalSeconds: Double = 0
     private var recordingTimer: Timer?
     private var activeRecordingSession: ActiveRecordingSession?
-    private var transcriptSearchCache: [String: TranscriptSearchCacheEntry] = [:]
+    private let historySearchIndex = HistorySearchIndex()
     private var workspaceObservers: [NSObjectProtocol] = []
     private var activeTranscriptionRunHandle: TranscriptionRunHandle?
     private var isQueueCancellationRequested = false
     private var isSkippingCurrentQueueItem = false
     private var activeQueueFilterIDs: Set<UUID>?
+    private var pendingHistoryDeletion: PendingHistoryDeletion?
+    private var pendingHistoryDeletionTask: Task<Void, Never>?
     private let historyPersistenceQueue = DispatchQueue(label: "com.gzwhisper.history.persistence", qos: .utility)
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
@@ -284,7 +362,11 @@ final class AppViewModel: ObservableObject {
     }
 
     var canStartRecording: Bool {
-        !isRecording && !isStoppingRecording && !isTranscribing && !isDownloadingModel
+        !isRecording && !isStoppingRecording && !isDownloadingModel
+    }
+
+    var canUndoHistoryDeletion: Bool {
+        pendingHistoryDeletion != nil
     }
 
     var canStopRecording: Bool {
@@ -307,6 +389,7 @@ final class AppViewModel: ObservableObject {
     }
 
     deinit {
+        pendingHistoryDeletionTask?.cancel()
         historyPersistenceQueue.sync {}
         recordingTimer?.invalidate()
         let notificationCenter = NSWorkspace.shared.notificationCenter
@@ -1063,17 +1146,19 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        if let transcriptPath = item.transcriptPath {
-            transcriptSearchCache.removeValue(forKey: transcriptPath)
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: transcriptPath))
-        }
-        if let audioPath = item.audioPath {
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: audioPath))
-        }
+        finalizePendingHistoryDeletion()
+
+        let wasSelected = selectedHistoryItemID == id
+        pendingHistoryDeletion = PendingHistoryDeletion(
+            item: item,
+            originalIndex: index,
+            wasSelected: wasSelected
+        )
+        pendingHistoryDeletionName = item.displayName
 
         historyItems.remove(at: index)
 
-        if selectedHistoryItemID == id {
+        if wasSelected {
             selectedHistoryItemID = nil
             transcriptText = ""
             segments = []
@@ -1081,6 +1166,29 @@ final class AppViewModel: ObservableObject {
         }
 
         statusMessage = L10n.f("status.historyDeleted", item.displayName)
+        persistHistoryToDisk()
+        schedulePendingHistoryDeletionFinalization(for: item.id)
+    }
+
+    func undoHistoryDeletion() {
+        guard let pending = pendingHistoryDeletion else {
+            return
+        }
+
+        pendingHistoryDeletionTask?.cancel()
+        pendingHistoryDeletionTask = nil
+        pendingHistoryDeletion = nil
+        pendingHistoryDeletionName = nil
+
+        let insertionIndex = min(max(pending.originalIndex, 0), historyItems.count)
+        historyItems.insert(pending.item, at: insertionIndex)
+        sortHistoryByDateDesc()
+
+        if pending.wasSelected {
+            openHistoryItem(pending.item.id)
+        }
+
+        statusMessage = L10n.f("status.historyRestored", pending.item.displayName)
         persistHistoryToDisk()
     }
 
@@ -1216,27 +1324,29 @@ final class AppViewModel: ObservableObject {
         item.hasCustomName ? item.sourceFileName : nil
     }
 
-    func filteredHistoryItems(matching query: String) -> [TranscriptHistoryItem] {
-        let normalizedQuery = Self.normalizedHistorySearchText(query)
-        guard !normalizedQuery.isEmpty else {
-            return historyItems
+    func filteredHistoryItems(matching query: String) async -> [TranscriptHistoryItem]? {
+        let snapshot = historyItems
+        let sources = snapshot.map { item in
+            HistorySearchSource(
+                id: item.id,
+                metadata: [
+                    item.displayName,
+                    item.sourceFileName,
+                    item.sourceFilePath,
+                    item.audioPath ?? "",
+                    item.transcriptPath ?? "",
+                ].joined(separator: "\n"),
+                transcriptPath: item.transcriptPath
+            )
         }
 
-        return historyItems.filter { item in
-            let searchableFields = [
-                item.displayName,
-                item.sourceFileName,
-                item.sourceFilePath,
-                item.audioPath ?? "",
-                item.transcriptPath ?? "",
-            ]
-
-            let hasFieldMatch = searchableFields.contains { field in
-                Self.normalizedHistorySearchText(field).contains(normalizedQuery)
-            }
-
-            return hasFieldMatch || transcriptContentsContainQuery(for: item, normalizedQuery: normalizedQuery)
+        guard let matchingIDs = await historySearchIndex.matchingItemIDs(query: query, sources: sources) else {
+            return nil
         }
+        guard !Task.isCancelled else {
+            return nil
+        }
+        return snapshot.filter { matchingIDs.contains($0.id) }
     }
 
     func historyBadgeText(for item: TranscriptHistoryItem) -> String? {
@@ -1560,11 +1670,6 @@ final class AppViewModel: ObservableObject {
         historyItems[index].progressFraction = 1.0
         historyItems[index].etaSeconds = nil
         historyItems[index].isRuntimeOnly = false
-        transcriptSearchCache[transcriptURL.path] = TranscriptSearchCacheEntry(
-            modificationDate: modificationDate(for: transcriptURL.path),
-            normalizedText: Self.normalizedHistorySearchText(result.text)
-        )
-
         transcriptText = result.text
         segments = result.segments
         lastModelID = result.modelID
@@ -1795,8 +1900,6 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadHistoryFromDisk() {
-        transcriptSearchCache.removeAll()
-
         guard let data = try? Data(contentsOf: historyFileURL) else {
             historyItems = []
             return
@@ -1889,43 +1992,6 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func transcriptContentsContainQuery(for item: TranscriptHistoryItem, normalizedQuery: String) -> Bool {
-        guard let transcriptPath = item.transcriptPath, !normalizedQuery.isEmpty else {
-            return false
-        }
-
-        return transcriptSearchText(at: transcriptPath).contains(normalizedQuery)
-    }
-
-    private func transcriptSearchText(at path: String) -> String {
-        let currentModificationDate = modificationDate(for: path)
-
-        if let cached = transcriptSearchCache[path], cached.modificationDate == currentModificationDate {
-            return cached.normalizedText
-        }
-
-        guard FileManager.default.fileExists(atPath: path) else {
-            transcriptSearchCache.removeValue(forKey: path)
-            return ""
-        }
-
-        let url = URL(fileURLWithPath: path)
-        let normalizedText = (try? String(contentsOf: url, encoding: .utf8))
-            .map(Self.normalizedHistorySearchText) ?? ""
-
-        transcriptSearchCache[path] = TranscriptSearchCacheEntry(
-            modificationDate: currentModificationDate,
-            normalizedText: normalizedText
-        )
-
-        return normalizedText
-    }
-
-    private func modificationDate(for path: String) -> Date? {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
-        return attributes?[.modificationDate] as? Date
-    }
-
     private static func normalizedHistoryCustomName(_ name: String, sourceFileName: String) -> String? {
         let normalized = name
             .components(separatedBy: .whitespacesAndNewlines)
@@ -1939,13 +2005,42 @@ final class AppViewModel: ObservableObject {
         return normalized == sourceFileName ? nil : normalized
     }
 
-    private static func normalizedHistorySearchText(_ text: String) -> String {
-        text
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+    private func schedulePendingHistoryDeletionFinalization(for itemID: UUID) {
+        pendingHistoryDeletionTask?.cancel()
+        pendingHistoryDeletionTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 15_000_000_000)
+            } catch {
+                return
+            }
+
+            guard let self, self.pendingHistoryDeletion?.item.id == itemID else {
+                return
+            }
+            self.finalizePendingHistoryDeletion()
+        }
+    }
+
+    private func finalizePendingHistoryDeletion() {
+        pendingHistoryDeletionTask?.cancel()
+        pendingHistoryDeletionTask = nil
+
+        guard let pending = pendingHistoryDeletion else {
+            pendingHistoryDeletionName = nil
+            return
+        }
+
+        pendingHistoryDeletion = nil
+        pendingHistoryDeletionName = nil
+
+        let paths = Set([pending.item.transcriptPath, pending.item.audioPath].compactMap { $0 })
+        for path in paths where FileManager.default.fileExists(atPath: path) {
+            var resultingURL: NSURL?
+            try? FileManager.default.trashItem(
+                at: URL(fileURLWithPath: path),
+                resultingItemURL: &resultingURL
+            )
+        }
     }
 
     private static func normalizedBundleBuildLabel(_ value: String?) -> String? {
