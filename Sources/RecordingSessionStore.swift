@@ -151,7 +151,11 @@ final class RecordingSessionStore {
         guard fileManager.fileExists(atPath: url.path) else {
             return false
         }
-        return (try? fileSize(at: url)) ?? 0 > 1024
+        guard (try? fileSize(at: url)) ?? 0 > 1024 else {
+            return false
+        }
+
+        return !AVURLAsset(url: url).tracks(withMediaType: .audio).isEmpty
     }
 
     private func usableCaptureURL(path: String?) -> URL? {

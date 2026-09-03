@@ -17,8 +17,8 @@ MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
 ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-1}"
-APP_VERSION="${APP_VERSION:-1.5.1}"
-APP_BUILD="${APP_BUILD:-2508261}"
+APP_VERSION="${APP_VERSION:-1.5.2}"
+APP_BUILD="${APP_BUILD:-270826}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-arm64"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
@@ -28,26 +28,68 @@ ENTITLEMENTS_FILE="${ENTITLEMENTS_FILE:-$ROOT_DIR/Resources/GZWhisper.entitlemen
 
 detect_signing_identity() {
   local identities
-  local detected_identity
+  local certificate_dir
+  local certificate_file
+  local candidate_hash
+  local certificate_hash
+  local preferred_kind
 
   if ! identities="$(security find-identity -v -p codesigning 2>/dev/null)"; then
     return 1
   fi
 
-  detected_identity="$(echo "$identities" | sed -n 's/.*"Developer ID Application: \(.*\)"/Developer ID Application: \1/p' | head -n 1)"
-  if [[ -n "$detected_identity" ]]; then
-    echo "$detected_identity"
-    return 0
+  certificate_dir="$(mktemp -d)"
+  if ! security find-certificate -a -p 2>/dev/null | awk -v dir="$certificate_dir" '
+      /BEGIN CERTIFICATE/ {
+        count += 1
+        file = sprintf("%s/cert-%04d.pem", dir, count)
+      }
+      file != "" { print > file }
+      /END CERTIFICATE/ {
+        close(file)
+        file = ""
+      }
+    '; then
+    rm -rf "$certificate_dir"
+    return 1
   fi
 
-  if [[ "$ALLOW_APPLE_DEVELOPMENT_FALLBACK" == "1" ]]; then
-    detected_identity="$(echo "$identities" | sed -n 's/.*"Apple Development: \(.*\)"/Apple Development: \1/p' | head -n 1)"
-    if [[ -n "$detected_identity" ]]; then
-      echo "$detected_identity"
-      return 0
+  for preferred_kind in "Developer ID Application" "Apple Development"; do
+    if [[ "$preferred_kind" == "Apple Development" && "$ALLOW_APPLE_DEVELOPMENT_FALLBACK" != "1" ]]; then
+      continue
     fi
-  fi
 
+    while IFS= read -r candidate_hash; do
+      [[ -n "$candidate_hash" ]] || continue
+
+      for certificate_file in "$certificate_dir"/*.pem; do
+        [[ -f "$certificate_file" ]] || continue
+        certificate_hash="$(
+          openssl x509 -in "$certificate_file" -noout -fingerprint -sha1 2>/dev/null \
+            | sed 's/.*=//; s/://g'
+        )"
+        [[ "$certificate_hash" == "$candidate_hash" ]] || continue
+
+        if security verify-cert \
+          -c "$certificate_file" \
+          -p codeSign \
+          -R ocsp \
+          -q >/dev/null 2>&1; then
+          rm -rf "$certificate_dir"
+          echo "$candidate_hash"
+          return 0
+        fi
+
+        echo "Warning: skipping revoked or otherwise unusable signing identity: $candidate_hash" >&2
+        break
+      done
+    done < <(
+      echo "$identities" \
+        | sed -n "s/^[[:space:]]*[0-9]*) \([0-9A-Fa-f][0-9A-Fa-f]*\) \"$preferred_kind:.*\"/\1/p"
+    )
+  done
+
+  rm -rf "$certificate_dir"
   return 1
 }
 
@@ -196,7 +238,9 @@ if [[ "$SIGNING_IDENTITY" == "-" ]]; then
   codesign --force --deep --entitlements "$ENTITLEMENTS_FILE" --sign - "$APP_DIR" >/dev/null 2>&1 || true
 else
   echo "Signing app with identity: $SIGNING_IDENTITY"
-  if [[ "$SIGNING_IDENTITY" == Apple\ Development:* ]]; then
+  if security find-identity -v -p codesigning 2>/dev/null \
+    | grep -F "$SIGNING_IDENTITY" \
+    | grep -q '"Apple Development:'; then
     echo "Warning: Apple Development signing is for local testing on your own Macs."
     echo "Public releases should use Developer ID Application and notarization."
   fi

@@ -700,7 +700,6 @@ struct ContentView: View {
     private var recordingOptionsMenu: some View {
         Menu {
             Toggle(L10n.t("setting.hudAutoShow"), isOn: $viewModel.shouldShowHUDOnRecordingStart)
-            Toggle(L10n.t("setting.autoPauseSleep"), isOn: $viewModel.shouldAutoPauseOnSleep)
         } label: {
             Image(systemName: "slider.horizontal.3")
         }

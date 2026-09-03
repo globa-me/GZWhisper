@@ -512,7 +512,8 @@ final class WhisperEngine: @unchecked Sendable {
         status(L10n.t("engine.creatingVenv"))
         let result = try ProcessRunner.run(
             executableURL: bootstrapPythonURL,
-            arguments: ["-m", "venv", venvDirectory.path]
+            arguments: ["-m", "venv", venvDirectory.path],
+            environment: pythonEnvironment()
         )
 
         guard result.exitCode == 0 else {
@@ -526,7 +527,8 @@ final class WhisperEngine: @unchecked Sendable {
 
         let checkResult = try ProcessRunner.run(
             executableURL: pythonURL,
-            arguments: ["-c", "import faster_whisper, huggingface_hub"]
+            arguments: ["-c", "import faster_whisper, huggingface_hub"],
+            environment: pythonEnvironment()
         )
 
         guard checkResult.exitCode != 0 else {
@@ -547,7 +549,8 @@ final class WhisperEngine: @unchecked Sendable {
                     "--upgrade",
                     "faster-whisper",
                     "huggingface_hub",
-                ]
+                ],
+                environment: pythonEnvironment()
             )
 
             if bundledInstallResult.exitCode == 0 {
@@ -559,12 +562,14 @@ final class WhisperEngine: @unchecked Sendable {
 
         _ = try ProcessRunner.run(
             executableURL: pythonURL,
-            arguments: ["-m", "pip", "install", "--upgrade", "pip"]
+            arguments: ["-m", "pip", "install", "--upgrade", "pip"],
+            environment: pythonEnvironment()
         )
 
         let installResult = try ProcessRunner.run(
             executableURL: pythonURL,
-            arguments: ["-m", "pip", "install", "--upgrade", "faster-whisper", "huggingface_hub"]
+            arguments: ["-m", "pip", "install", "--upgrade", "faster-whisper", "huggingface_hub"],
+            environment: pythonEnvironment()
         )
 
         guard installResult.exitCode == 0 else {
@@ -596,10 +601,7 @@ final class WhisperEngine: @unchecked Sendable {
         try ProcessRunner.run(
             executableURL: resolvedVenvPythonURL(),
             arguments: arguments,
-            environment: [
-                "PYTHONUNBUFFERED": "1",
-                "GZWHISPER_UI_LANG": AppLanguage.current.workerCode,
-            ],
+            environment: pythonEnvironment(includeWorkerSettings: true),
             currentDirectoryURL: supportDirectory
         )
     }
@@ -612,15 +614,21 @@ final class WhisperEngine: @unchecked Sendable {
         try ProcessRunner.runStreaming(
             executableURL: resolvedVenvPythonURL(),
             arguments: arguments,
-            environment: [
-                "PYTHONUNBUFFERED": "1",
-                "GZWHISPER_UI_LANG": AppLanguage.current.workerCode,
-            ],
+            environment: pythonEnvironment(includeWorkerSettings: true),
             currentDirectoryURL: supportDirectory,
             onStart: onStart,
             onStdoutLine: onLine,
             onStderrLine: nil
         )
+    }
+
+    private func pythonEnvironment(includeWorkerSettings: Bool = false) -> [String: String] {
+        var environment = ["PYTHONDONTWRITEBYTECODE": "1"]
+        if includeWorkerSettings {
+            environment["PYTHONUNBUFFERED"] = "1"
+            environment["GZWHISPER_UI_LANG"] = AppLanguage.current.workerCode
+        }
+        return environment
     }
 
     private func resolvedVenvPythonURL() throws -> URL {

@@ -229,12 +229,6 @@ final class AppViewModel: ObservableObject {
             UserDefaults.standard.set(shouldShowHUDOnRecordingStart, forKey: Self.showHUDOnRecordingStartKey)
         }
     }
-    @Published var shouldAutoPauseOnSleep = true {
-        didSet {
-            UserDefaults.standard.set(shouldAutoPauseOnSleep, forKey: Self.autoPauseOnSleepKey)
-        }
-    }
-
     let languageOptions = L10n.transcriptionLanguageOptions
     let appVersionLabel: String
     let appBuildLabel: String
@@ -278,7 +272,6 @@ final class AppViewModel: ObservableObject {
     private var pendingHistoryDeletionTask: Task<Void, Never>?
     private let historyPersistenceQueue = DispatchQueue(label: "com.gzwhisper.history.persistence", qos: .utility)
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
-    private static let autoPauseOnSleepKey = "recording.autoPauseOnSleep"
     private static let largeMediaSizeThresholdBytes: Int64 = 2 * 1024 * 1024 * 1024
     private static let longMediaDurationThresholdSeconds: Double = 60 * 60
 
@@ -382,10 +375,10 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.1"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.2"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "2508261"
+        ) ?? "270826"
     }
 
     deinit {
@@ -401,7 +394,11 @@ final class AppViewModel: ObservableObject {
 
     func initialize() {
         shouldShowHUDOnRecordingStart = UserDefaults.standard.object(forKey: Self.showHUDOnRecordingStartKey) as? Bool ?? true
-        shouldAutoPauseOnSleep = UserDefaults.standard.object(forKey: Self.autoPauseOnSleepKey) as? Bool ?? true
+        audioCaptureService.onUnexpectedInterruption = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleUnexpectedRecordingInterruption()
+            }
+        }
         refreshModelStatus()
         refreshRuntimeIssue()
         loadHistoryFromDisk()
@@ -735,11 +732,17 @@ final class AppViewModel: ObservableObject {
     }
 
     func stopRecording() {
+        finishRecording(automaticRecovery: false)
+    }
+
+    private func finishRecording(automaticRecovery: Bool) {
         guard canStopRecording else {
             return
         }
 
-        statusMessage = L10n.t("record.status.stopping")
+        statusMessage = automaticRecovery
+            ? L10n.t("record.status.recovering")
+            : L10n.t("record.status.stopping")
         let wasPaused = isRecordingPaused
         let pausedAt = recordingPausedAt
 
@@ -761,28 +764,17 @@ final class AppViewModel: ObservableObject {
                 let result = try await audioCaptureService.stop()
                 addRecordingToHistory(result)
                 clearActiveRecordingSession()
-                statusMessage = L10n.f("record.status.saved", result.audioURL.lastPathComponent)
+                statusMessage = L10n.f(
+                    automaticRecovery ? "record.status.recovered" : "record.status.saved",
+                    result.audioURL.lastPathComponent
+                )
             } catch {
-                if let audioError = error as? AudioCaptureServiceError {
-                    switch audioError {
-                    case .notRecording, .invalidState:
-                        if !recoverInterruptedRecordingIfNeeded() {
-                            statusMessage = error.localizedDescription
-                        }
-                    default:
-                        statusMessage = error.localizedDescription
-                    }
-                } else {
+                if !recoverInterruptedRecordingIfNeeded() {
                     statusMessage = error.localizedDescription
                 }
             }
 
-            isRecording = false
-            isStoppingRecording = false
-            recordingStartedAt = nil
-            recordingPausedAt = nil
-            recordingPausedTotalSeconds = 0
-            recordingElapsedText = "00:00:00"
+            resetRecordingUIState()
         }
     }
 
@@ -1165,7 +1157,6 @@ final class AppViewModel: ObservableObject {
             currentEditorSourcePath = nil
         }
 
-        statusMessage = L10n.f("status.historyDeleted", item.displayName)
         persistHistoryToDisk()
         schedulePendingHistoryDeletionFinalization(for: item.id)
     }
@@ -2090,16 +2081,40 @@ final class AppViewModel: ObservableObject {
                 self?.handleSystemWillSleep()
             }
         }
-        workspaceObservers = [willSleep]
+        let didWake = notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleSystemDidWake()
+            }
+        }
+        workspaceObservers = [willSleep, didWake]
     }
 
     private func handleSystemWillSleep() {
-        guard shouldAutoPauseOnSleep, isRecording, !isRecordingPaused else {
+        guard isRecording, !isStoppingRecording else {
             return
         }
 
-        pauseRecording()
-        statusMessage = L10n.t("record.status.pausedBySystem")
+        finishRecording(automaticRecovery: true)
+    }
+
+    private func handleSystemDidWake() {
+        guard isRecording, !isStoppingRecording else {
+            return
+        }
+
+        finishRecording(automaticRecovery: true)
+    }
+
+    private func handleUnexpectedRecordingInterruption() {
+        guard isRecording, !isStoppingRecording else {
+            return
+        }
+
+        finishRecording(automaticRecovery: true)
     }
 
     private func clearActiveRecordingSession() {
@@ -2136,9 +2151,22 @@ final class AppViewModel: ObservableObject {
             statusMessage = L10n.f("record.status.recovered", recovered.audioURL.lastPathComponent)
             return true
         } catch {
+            activeRecordingSession = nil
+            try? recordingSessionStore.clearActiveSession()
             statusMessage = L10n.f("record.status.recoverFailed", error.localizedDescription)
             return false
         }
+    }
+
+    private func resetRecordingUIState() {
+        isRecording = false
+        isRecordingPaused = false
+        isStoppingRecording = false
+        recordingStartedAt = nil
+        recordingPausedAt = nil
+        recordingPausedTotalSeconds = 0
+        recordingElapsedText = "00:00:00"
+        stopRecordingTimer()
     }
 
     private func startRecordingTimer() {

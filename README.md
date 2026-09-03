@@ -29,14 +29,14 @@ After the model is downloaded, transcription runs on the user's machine.
 
 ## macOS: download and run
 
-**Current release: `v1.5.1` (build `2508261`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
+**Current release: `v1.5.2` (build `270826`).** It supports Apple Silicon Macs (`arm64`) running macOS 12 or later. Recording system audio requires macOS 13 or later.
 
 Choose one of the files below. The contents are identical; DMG is the most familiar installation format, while ZIP is often more convenient when macOS has to approve an unsigned or non-notarized app.
 
-- [Latest DMG: GZWhisper-Installer-1.5.1.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.1.dmg)
-- [Latest ZIP: GZWhisper-macOS-1.5.1.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.1.zip)
-- [v1.5.1 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.1/GZWhisper-Installer-1.5.1.dmg)
-- [v1.5.1 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.1/GZWhisper-macOS-1.5.1.zip)
+- [Latest DMG: GZWhisper-Installer-1.5.2.dmg](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.2.dmg)
+- [Latest ZIP: GZWhisper-macOS-1.5.2.zip](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.2.zip)
+- [v1.5.2 DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.2/GZWhisper-Installer-1.5.2.dmg)
+- [v1.5.2 ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.2/GZWhisper-macOS-1.5.2.zip)
 
 Older releases are available on the [Releases page](https://github.com/globa-me/GZWhisper/releases).
 
@@ -194,18 +194,18 @@ This section is for maintainers preparing release artifacts.
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.5.1.dmg`
+Output: `build/GZWhisper-Installer-1.5.2.dmg`
 
 Optional version/build override for release builds:
 
 ```bash
-APP_VERSION=1.5.1 APP_BUILD=2508261 ./scripts/build_app.sh
+APP_VERSION=1.5.2 APP_BUILD=270826 ./scripts/build_app.sh
 ./scripts/build_dmg.sh
 ```
 
 Signing behavior:
 
-- `./scripts/build_app.sh` now tries to auto-detect a signing identity.
+- `./scripts/build_app.sh` auto-detects a signing identity and skips certificates that fail code-signing trust or revocation checks.
 - Preferred: `Developer ID Application` for public builds and permission persistence across updates.
 - By default, if no `Developer ID Application` is available, the script uses `Apple Development` when present.
 - `Apple Development` is used automatically for local developer installs when `Developer ID Application` is unavailable; set `ALLOW_APPLE_DEVELOPMENT_FALLBACK=0` to force ad-hoc fallback.
@@ -214,7 +214,7 @@ Signing behavior:
 Optional notarization for public DMG builds:
 
 ```bash
-APP_VERSION=1.5.1 APP_BUILD=2508261 ./scripts/build_app.sh
+APP_VERSION=1.5.2 APP_BUILD=270826 ./scripts/build_app.sh
 NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 ```
 
@@ -225,7 +225,7 @@ NOTARYTOOL_PROFILE=my-notary-profile ./scripts/build_dmg.sh
 The shipped macOS app now keeps the stable install name and bundle id so dragging a new release into `Applications` updates the previous app in place:
 - app bundle: `build/GZWhisper.app`
 - bundle id: `com.gzakharov.gzwhisper`
-- installer: `build/GZWhisper-Installer-1.5.1.dmg`
+- installer: `build/GZWhisper-Installer-1.5.2.dmg`
 
 If you need a non-versioned installer filename and volume title for release publishing, override:
 
@@ -266,7 +266,7 @@ Output: `build/GZWhisper.app`
 ./scripts/package_zip.sh
 ```
 
-Output: `build/GZWhisper-macOS-1.5.1.zip`
+Output: `build/GZWhisper-macOS-1.5.2.zip`
 
 The ZIP now includes:
 - `GZWhisper.app`
@@ -280,7 +280,7 @@ The ZIP now includes:
 ./scripts/build_dmg.sh
 ```
 
-Output: `build/GZWhisper-Installer-1.5.1.dmg`
+Output: `build/GZWhisper-Installer-1.5.2.dmg`
 
 # First run (all platforms)
 
@@ -306,7 +306,7 @@ Output: `build/GZWhisper-Installer-1.5.1.dmg`
 
 ## Changelog
 
-### Unreleased
+### 2026-08-27 (v1.5.2, build 270826)
 
 - Compacted narrow-window queue and recording controls with icon variants instead of extra wrapped rows.
 - Expanded history entries so date, duration, state, and queue position remain readable, and added an animated full-width search field inside the history panel.
@@ -314,6 +314,8 @@ Output: `build/GZWhisper-Installer-1.5.1.dmg`
 - Isolated hover updates to individual history rows and eliminated duplicate row metadata formatting for smoother scrolling through long histories.
 - Reduced the floating recording HUD and enabled starting a new recording while transcription is running.
 - Added simultaneous recording/transcription summaries in the footer and a 15-second undo action for history deletion before files move to the macOS Trash.
+- Made interrupted-recording recovery automatic: sleep, wake fallback, and unexpected system-audio or microphone interruption now finalize the recording, add it to history, and release the recording controls. Fragmented M4A staging also improves recovery after an abrupt process stop, with single-track fallback for combined recordings.
+- Removed duplicate history-deletion text from the footer; the undo notification is now the single source of that status.
 
 ### 2026-08-25 (v1.5.1, build 2508261)
 

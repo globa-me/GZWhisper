@@ -4,19 +4,21 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 
 ## Current State
 
-- Current source version: `v1.5.1`, build `2508261`.
-- Version `v1.5.1` adds responsive wide/compact SwiftUI layouts so controls wrap cleanly instead of clipping in narrow windows. It preserves the existing support directory and transcript history format.
-- Unreleased macOS work after `v1.5.1` further compacts the queue and recording controls, enlarges history metadata rows, adds an in-list animated history search, and reduces the recording HUD to `238x90` points.
+- Current source version: `v1.5.2`, build `270826`.
+- Version `v1.5.2` fixes duplicate history-deletion status text and makes interrupted-recording recovery automatic, including sleep/wake and unexpected capture interruptions. It also includes the compact queue/recording UI, larger history metadata rows, in-list animated history search, and the `238x90` recording HUD developed after `v1.5.1`.
 - History search is debounced and runs through an actor-backed normalized index, keeping transcript reads, file metadata checks, and full-text matching off the main actor. Search results are computed once per settled query rather than repeatedly during SwiftUI rendering.
 - History row hover state is local to each row wrapper, so scrolling across the pointer no longer invalidates the entire `ContentView`; repeated row metadata formatting is also avoided.
 - Recording can now start while a transcription queue is active. The footer derives separate live transcription and recording summaries and displays both with a divider.
 - History deletion now has a 15-second single-item undo action. Files remain in place during the undo window and are moved to the macOS Trash when it expires; imported source media is still never deleted unless it is an app-created recording referenced by `audioPath`.
+- Interrupted recordings are finalized automatically when macOS goes to sleep, after wake as a fallback, and when ScreenCaptureKit or the microphone capture session reports an unexpected stop. Recording uses fragmented M4A staging files for crash recovery; recovery accepts only readable audio and preserves a surviving system or microphone track if a two-track merge fails. Finalization always clears the live recording UI so a new recording is not blocked.
+- The footer shows history-deletion feedback only in the dedicated 15-second undo control, avoiding a duplicate copy in the general status area.
+- macOS builds now reject revoked code-signing identities during automatic selection. Python subprocesses also set `PYTHONDONTWRITEBYTECODE=1` so the embedded runtime cannot add `__pycache__` files inside a signed app bundle and invalidate its resource seal.
 - Primary supported platform: macOS on Apple Silicon (`arm64`).
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target.
 - The current macOS app bundle is `build/GZWhisper.app`.
 - Release package defaults are:
-  - `build/GZWhisper-macOS-1.5.1.zip`
-  - `build/GZWhisper-Installer-1.5.1.dmg`
+  - `build/GZWhisper-macOS-1.5.2.zip`
+  - `build/GZWhisper-Installer-1.5.2.dmg`
 
 ## Project Layout
 

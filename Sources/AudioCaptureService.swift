@@ -113,8 +113,11 @@ final class AudioCaptureService: NSObject {
 
     private var microphoneSession: AVCaptureSession?
     private var microphoneOutput: AVCaptureAudioDataOutput?
+    private var microphoneObservers: [NSObjectProtocol] = []
 
     private var systemStream: AnyObject?
+
+    var onUnexpectedInterruption: ((Error) -> Void)?
 
     var isRecording: Bool {
         syncQueue { state == .recording || state == .paused }
@@ -223,30 +226,50 @@ final class AudioCaptureService: NSObject {
             return (mode, destinationURL)
         }
 
-        try await stopSources()
+        var firstError = syncQueue { self.captureError }
 
-        if let captureError = syncQueue({ self.captureError }) {
-            cleanupTempFiles(except: nil)
-            resetToIdle()
-            throw captureError
+        do {
+            try await stopSources()
+        } catch {
+            firstError = firstError ?? error
         }
 
-        let systemURL = try await finishWriter(for: .system)
-        let microphoneURL = try await finishWriter(for: .microphone)
+        var systemURL: URL?
+        var microphoneURL: URL?
 
-        let finalURL = try await exportFinalFile(
-            mode: snapshot.0,
-            destinationURL: snapshot.1,
-            systemURL: systemURL,
-            microphoneURL: microphoneURL
-        )
-        let duration = try await asyncQueueThrows { [self] () -> Double in
-            cleanupTempFiles(except: finalURL)
-            let duration = durationForMedia(at: finalURL)
-            resetToIdle()
-            return duration
+        do {
+            systemURL = try await finishWriter(for: .system)
+        } catch {
+            firstError = firstError ?? error
         }
-        return CaptureResult(audioURL: finalURL, durationSeconds: duration, mode: snapshot.0)
+        do {
+            microphoneURL = try await finishWriter(for: .microphone)
+        } catch {
+            firstError = firstError ?? error
+        }
+
+        do {
+            let finalURL = try await exportFinalFile(
+                mode: snapshot.0,
+                destinationURL: snapshot.1,
+                systemURL: systemURL,
+                microphoneURL: microphoneURL
+            )
+            let duration = await asyncQueue { [self] () -> Double in
+                cleanupTempFiles(except: finalURL)
+                let duration = durationForMedia(at: finalURL)
+                resetToIdle()
+                return duration
+            }
+            return CaptureResult(audioURL: finalURL, durationSeconds: duration, mode: snapshot.0)
+        } catch {
+            let resultError = firstError ?? error
+            await asyncQueue { [self] in
+                cleanupTempFiles(except: nil)
+                resetToIdle()
+            }
+            throw resultError
+        }
     }
 
     func stopWithoutResult() async throws {
@@ -291,6 +314,7 @@ final class AudioCaptureService: NSObject {
         } catch {
             throw AudioCaptureServiceError.cannotCreateWriter(error.localizedDescription)
         }
+        writer.movieFragmentInterval = CMTime(seconds: 5, preferredTimescale: 1)
 
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -349,6 +373,27 @@ final class AudioCaptureService: NSObject {
 
         microphoneSession = session
         microphoneOutput = output
+        let notificationCenter = NotificationCenter.default
+        microphoneObservers = [
+            notificationCenter.addObserver(
+                forName: AVCaptureSession.runtimeErrorNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] notification in
+                let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
+                    ?? AudioCaptureServiceError.captureFailed("Microphone capture stopped unexpectedly")
+                self?.reportUnexpectedInterruption(error)
+            },
+            notificationCenter.addObserver(
+                forName: AVCaptureSession.wasInterruptedNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] _ in
+                self?.reportUnexpectedInterruption(
+                    AudioCaptureServiceError.captureFailed("Microphone capture was interrupted")
+                )
+            },
+        ]
         session.startRunning()
     }
 
@@ -380,7 +425,7 @@ final class AudioCaptureService: NSObject {
         configuration.sampleRate = 44_100
         configuration.channelCount = 2
 
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: captureQueue)
         try await stream.startCapture()
 
@@ -390,12 +435,14 @@ final class AudioCaptureService: NSObject {
     }
 
     private func stopSources() async throws {
+        var stopError: Error?
+
         if #available(macOS 13.0, *) {
             if let stream = syncQueue({ self.systemStream }) as? SCStream {
                 do {
                     try await stream.stopCapture()
                 } catch {
-                    throw AudioCaptureServiceError.captureFailed(error.localizedDescription)
+                    stopError = AudioCaptureServiceError.captureFailed(error.localizedDescription)
                 }
                 syncQueue {
                     self.systemStream = nil
@@ -404,12 +451,21 @@ final class AudioCaptureService: NSObject {
         }
 
         await asyncQueue { [self] in
+            let notificationCenter = NotificationCenter.default
+            for observer in microphoneObservers {
+                notificationCenter.removeObserver(observer)
+            }
+            microphoneObservers.removeAll()
             if let microphoneOutput {
                 microphoneOutput.setSampleBufferDelegate(nil, queue: nil)
             }
             microphoneSession?.stopRunning()
             microphoneSession = nil
             microphoneOutput = nil
+        }
+
+        if let stopError {
+            throw stopError
         }
     }
 
@@ -486,10 +542,19 @@ final class AudioCaptureService: NSObject {
                 try FileManager.default.moveItem(at: microphoneURL, to: destinationURL)
                 return destinationURL
             case .systemAndMicrophone:
-                guard let systemURL, let microphoneURL else {
+                if let systemURL, let microphoneURL {
+                    do {
+                        try mergeAudioFiles(first: systemURL, second: microphoneURL, outputURL: destinationURL)
+                        return destinationURL
+                    } catch {
+                        try? FileManager.default.removeItem(at: destinationURL)
+                    }
+                }
+
+                guard let fallbackURL = microphoneURL ?? systemURL else {
                     throw AudioCaptureServiceError.emptyRecording
                 }
-                try mergeAudioFiles(first: systemURL, second: microphoneURL, outputURL: destinationURL)
+                try FileManager.default.moveItem(at: fallbackURL, to: destinationURL)
                 return destinationURL
             }
         }
@@ -595,6 +660,11 @@ final class AudioCaptureService: NSObject {
 
     private func resetToIdle() {
         syncQueue {
+            let notificationCenter = NotificationCenter.default
+            for observer in microphoneObservers {
+                notificationCenter.removeObserver(observer)
+            }
+            microphoneObservers.removeAll()
             state = .idle
             mode = .systemAndMicrophone
             destinationURL = nil
@@ -634,6 +704,17 @@ final class AudioCaptureService: NSObject {
                 throw AudioCaptureServiceError.microphoneAccessDenied
             }
         }
+    }
+
+    private func reportUnexpectedInterruption(_ error: Error) {
+        let handler = syncQueue { () -> ((Error) -> Void)? in
+            guard state == .recording || state == .paused else {
+                return nil
+            }
+            captureError = AudioCaptureServiceError.captureFailed(error.localizedDescription)
+            return onUnexpectedInterruption
+        }
+        handler?(error)
     }
 
     private func appendSampleBuffer(_ sampleBuffer: CMSampleBuffer, source: CaptureSource) {
@@ -829,5 +910,12 @@ extension AudioCaptureService: SCStreamOutput {
             return
         }
         appendSampleBuffer(sampleBuffer, source: .system)
+    }
+}
+
+@available(macOS 13.0, *)
+extension AudioCaptureService: SCStreamDelegate {
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        reportUnexpectedInterruption(error)
     }
 }
