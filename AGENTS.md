@@ -14,6 +14,7 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 - The footer shows history-deletion feedback only in the dedicated 15-second undo control, avoiding a duplicate copy in the general status area.
 - macOS builds now reject revoked code-signing identities during automatic selection. Python subprocesses also set `PYTHONDONTWRITEBYTECODE=1` so the embedded runtime cannot add `__pycache__` files inside a signed app bundle and invalidate its resource seal.
 - TXT and JSON export dialogs derive their suggested filename from the open history item's current display name, including user renames. Original media extensions are removed for unrenamed items, and unsafe filename characters are sanitized.
+- `docs/GZWHISPER_PRODUCT_FUNCTIONALITY_RU.md` is the maintained Russian product-functionality baseline for competitor research. It describes the full macOS feature set, Linux/Windows differences, current limitations, local data handling, and a ready-to-use deep-research prompt; update it when user-facing capabilities materially change. Regenerate its shareable DOCX with `scripts/build_product_functionality_docx.py`.
 - Primary supported platform: macOS on Apple Silicon (`arm64`).
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target.
 - The current macOS app bundle is `build/GZWhisper.app`.
