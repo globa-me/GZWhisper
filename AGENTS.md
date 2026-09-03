@@ -13,6 +13,7 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 - Interrupted recordings are finalized automatically when macOS goes to sleep, after wake as a fallback, and when ScreenCaptureKit or the microphone capture session reports an unexpected stop. Recording uses fragmented M4A staging files for crash recovery; recovery accepts only readable audio and preserves a surviving system or microphone track if a two-track merge fails. Finalization always clears the live recording UI so a new recording is not blocked.
 - The footer shows history-deletion feedback only in the dedicated 15-second undo control, avoiding a duplicate copy in the general status area.
 - macOS builds now reject revoked code-signing identities during automatic selection. Python subprocesses also set `PYTHONDONTWRITEBYTECODE=1` so the embedded runtime cannot add `__pycache__` files inside a signed app bundle and invalidate its resource seal.
+- TXT and JSON export dialogs derive their suggested filename from the open history item's current display name, including user renames. Original media extensions are removed for unrenamed items, and unsafe filename characters are sanitized.
 - Primary supported platform: macOS on Apple Silicon (`arm64`).
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target.
 - The current macOS app bundle is `build/GZWhisper.app`.

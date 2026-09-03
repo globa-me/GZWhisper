@@ -306,6 +306,10 @@ Output: `build/GZWhisper-Installer-1.5.2.dmg`
 
 ## Changelog
 
+### Unreleased
+
+- TXT and JSON exports now use the open history item's current display name, so renamed recordings keep their chosen name when exported.
+
 ### 2026-08-27 (v1.5.2, build 270826)
 
 - Compacted narrow-window queue and recording controls with icon variants instead of extra wrapped rows.

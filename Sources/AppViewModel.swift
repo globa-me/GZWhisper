@@ -1225,7 +1225,7 @@ final class AppViewModel: ObservableObject {
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "transcript.txt"
+        panel.nameFieldStringValue = suggestedExportFileName(pathExtension: "txt")
         panel.title = L10n.t("panel.saveTXTTitle")
 
         if panel.runModal() == .OK, let destination = panel.url {
@@ -1246,7 +1246,7 @@ final class AppViewModel: ObservableObject {
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "transcript.json"
+        panel.nameFieldStringValue = suggestedExportFileName(pathExtension: "json")
         panel.title = L10n.t("panel.saveJSONTitle")
 
         if panel.runModal() == .OK, let destination = panel.url {
@@ -1888,6 +1888,28 @@ final class AppViewModel: ObservableObject {
         let components = name.components(separatedBy: invalid)
         let merged = components.joined(separator: "-")
         return merged.isEmpty ? "transcript" : merged
+    }
+
+    private func suggestedExportFileName(pathExtension: String) -> String {
+        let rawBaseName: String
+
+        if let currentEditorSourcePath,
+           let item = historyItems.first(where: { $0.sourceFilePath == currentEditorSourcePath }) {
+            rawBaseName = item.hasCustomName
+                ? item.displayName
+                : URL(fileURLWithPath: item.sourceFileName).deletingPathExtension().lastPathComponent
+        } else if let currentEditorSourcePath {
+            rawBaseName = URL(fileURLWithPath: currentEditorSourcePath).deletingPathExtension().lastPathComponent
+        } else {
+            rawBaseName = "transcript"
+        }
+
+        let sanitizedBaseName = Self.sanitizeFileName(rawBaseName)
+        let extensionSuffix = ".\(pathExtension)"
+        if sanitizedBaseName.lowercased().hasSuffix(extensionSuffix.lowercased()) {
+            return sanitizedBaseName
+        }
+        return sanitizedBaseName + extensionSuffix
     }
 
     private func loadHistoryFromDisk() {
