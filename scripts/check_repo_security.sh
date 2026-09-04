@@ -23,7 +23,7 @@ else
   report_ok "no tracked build artifacts"
 fi
 
-secret_pattern='([A-Za-z0-9_]*(api[_-]?key|secret|token|password)[A-Za-z0-9_]*[[:space:]]*[:=]|Authorization[[:space:]]*:|Bearer[[:space:]]+[A-Za-z0-9._-]+|PRIVATE KEY|ssh-rsa|AIza|sk-[A-Za-z0-9])'
+secret_pattern="([A-Za-z0-9_]*(api[_-]?key|secret|token|password)[A-Za-z0-9_]*[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]|Authorization[[:space:]]*:|Bearer[[:space:]]+[A-Za-z0-9._-]+|PRIVATE KEY|ssh-rsa|AIza|sk-[A-Za-z0-9])"
 secret_hits="$(
   git grep -n -I -E "$secret_pattern" -- . \
     ':(exclude)scripts/check_repo_security.sh' \

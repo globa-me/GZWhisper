@@ -862,6 +862,8 @@ struct ContentView: View {
         let metaText = viewModel.historyMetaText(for: item)
 
         return HistoryHoverView { isHovered in
+            let showsActions = editingHistoryItemID == item.id || isHovered
+
             VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
                 if canRunItem {
@@ -938,8 +940,7 @@ struct ContentView: View {
 
                 Spacer(minLength: 4)
 
-                if editingHistoryItemID == item.id || isHovered {
-                    HStack(spacing: 4) {
+                HStack(spacing: 4) {
                     if editingHistoryItemID == item.id {
                         Button(action: { commitHistoryRename(for: item.id) }) {
                             Image(systemName: "checkmark")
@@ -1017,8 +1018,10 @@ struct ContentView: View {
                         .buttonStyle(.borderless)
                         .disabled(!viewModel.canDeleteHistoryItem(item))
                     }
-                    }
                 }
+                .opacity(showsActions ? 1 : 0)
+                .allowsHitTesting(showsActions)
+                .accessibilityHidden(!showsActions)
             }
 
             if item.state == .processing {
