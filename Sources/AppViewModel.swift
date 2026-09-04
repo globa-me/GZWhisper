@@ -15,6 +15,11 @@ enum TranscriptJobState: String, Codable, Hashable {
     }
 }
 
+enum HistoryExportFormat: String {
+    case txt
+    case json
+}
+
 struct TranscriptHistoryItem: Identifiable, Codable {
     let id: UUID
     var sourceFileName: String
@@ -1283,6 +1288,95 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func exportHistoryItems(_ ids: Set<UUID>, format: HistoryExportFormat) -> Bool {
+        let selectedItems = historyItems.filter { ids.contains($0.id) && $0.state == .completed && $0.transcriptPath != nil }
+        guard !selectedItems.isEmpty else {
+            statusMessage = L10n.t("status.bulkExportNothingSelected")
+            return false
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = suggestedBulkExportArchiveName()
+        panel.title = L10n.t("panel.bulkExportTitle")
+
+        guard panel.runModal() == .OK, let destination = panel.url else {
+            return false
+        }
+
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("GZWhisper-export-\(UUID().uuidString)", isDirectory: true)
+        let stagingDirectory = temporaryRoot.appendingPathComponent("transcripts", isDirectory: true)
+        let temporaryArchive = temporaryRoot.appendingPathComponent("transcripts.zip")
+
+        defer {
+            try? fileManager.removeItem(at: temporaryRoot)
+        }
+
+        do {
+            try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+            var usedNames: Set<String> = []
+
+            for item in selectedItems {
+                guard let transcriptPath = item.transcriptPath else {
+                    continue
+                }
+
+                let transcript = try String(contentsOfFile: transcriptPath, encoding: .utf8)
+                let fileName = uniqueBulkExportFileName(for: item, format: format, usedNames: &usedNames)
+                let fileURL = stagingDirectory.appendingPathComponent(fileName)
+
+                switch format {
+                case .txt:
+                    try transcript.write(to: fileURL, atomically: true, encoding: .utf8)
+                case .json:
+                    var payload: [String: Any] = [
+                        "generated_at": ISO8601DateFormatter().string(from: Date()),
+                        "text": transcript,
+                        "segments": [],
+                        "source_file": item.sourceFilePath,
+                    ]
+                    if let detectedLanguage = item.detectedLanguage {
+                        payload["detected_language"] = detectedLanguage
+                    }
+                    if let modelID = item.modelID {
+                        payload["model_id"] = modelID
+                    }
+                    let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+                    try data.write(to: fileURL, options: .atomic)
+                }
+            }
+
+            let archiveProcess = Process()
+            archiveProcess.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            archiveProcess.arguments = ["-c", "-k", "--norsrc", stagingDirectory.path, temporaryArchive.path]
+            try archiveProcess.run()
+            archiveProcess.waitUntilExit()
+
+            guard archiveProcess.terminationStatus == 0 else {
+                throw NSError(
+                    domain: "GZWhisper.BulkExport",
+                    code: Int(archiveProcess.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: L10n.t("status.bulkExportArchiveError")]
+                )
+            }
+
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: temporaryArchive)
+            } else {
+                try fileManager.moveItem(at: temporaryArchive, to: destination)
+            }
+
+            statusMessage = L10n.f("status.bulkExportSaved", selectedItems.count, destination.lastPathComponent)
+            return true
+        } catch {
+            statusMessage = L10n.f("status.bulkExportError", error.localizedDescription)
+            return false
+        }
+    }
+
     func historyStateLabel(for state: TranscriptJobState) -> String {
         switch state {
         case .ready:
@@ -1884,10 +1978,43 @@ final class AppViewModel: ObservableObject {
     }
 
     nonisolated private static func sanitizeFileName(_ name: String) -> String {
-        let invalid = CharacterSet(charactersIn: "\\/:*?\"<>|")
+        let invalid = CharacterSet(charactersIn: "\\/:*?\"<>|").union(.controlCharacters)
         let components = name.components(separatedBy: invalid)
         let merged = components.joined(separator: "-")
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
         return merged.isEmpty ? "transcript" : merged
+    }
+
+    private func uniqueBulkExportFileName(
+        for item: TranscriptHistoryItem,
+        format: HistoryExportFormat,
+        usedNames: inout Set<String>
+    ) -> String {
+        let rawBaseName = item.hasCustomName
+            ? item.displayName
+            : URL(fileURLWithPath: item.sourceFileName).deletingPathExtension().lastPathComponent
+        let sanitizedName = Self.sanitizeFileName(rawBaseName)
+        let extensionSuffix = ".\(format.rawValue)"
+        let sanitizedBaseName = sanitizedName.lowercased().hasSuffix(extensionSuffix)
+            ? String(sanitizedName.dropLast(extensionSuffix.count))
+            : sanitizedName
+        var candidate = "\(sanitizedBaseName)\(extensionSuffix)"
+        var suffix = 2
+
+        while usedNames.contains(candidate.lowercased()) {
+            candidate = "\(sanitizedBaseName)-\(suffix)\(extensionSuffix)"
+            suffix += 1
+        }
+
+        usedNames.insert(candidate.lowercased())
+        return candidate
+    }
+
+    private func suggestedBulkExportArchiveName() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return "GZWhisper-transcripts-\(formatter.string(from: Date())).zip"
     }
 
     private func suggestedExportFileName(pathExtension: String) -> String {

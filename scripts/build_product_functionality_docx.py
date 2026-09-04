@@ -292,7 +292,7 @@ def configure_section(section):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.tab_stops.add_tab_stop(Inches(6.5), WD_TAB_ALIGNMENT.RIGHT)
-    left = p.add_run("v1.5.2 + commit 05cdd4d · 03.09.2026")
+    left = p.add_run("v1.5.2 · состояние 04.09.2026")
     set_font(left, size=9, color=MUTED)
     p.add_run("\t")
     label = p.add_run("Стр. ")
@@ -342,7 +342,7 @@ def add_cover(doc):
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
     metadata.paragraph_format.space_after = Pt(5)
-    run = metadata.add_run("Снимок продукта: 3 сентября 2026 года")
+    run = metadata.add_run("Снимок продукта: 4 сентября 2026 года")
     set_font(run, size=10.5, color=MUTED)
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -352,7 +352,7 @@ def add_cover(doc):
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
     metadata.paragraph_format.space_after = Pt(0)
-    run = metadata.add_run("Учтён HEAD: 05cdd4d — Name transcript exports after history items")
+    run = metadata.add_run("Учтено актуальное состояние рабочего дерева, включая массовый экспорт в ZIP")
     set_font(run, size=10.5, color=MUTED)
 
     doc.add_page_break()
@@ -402,8 +402,11 @@ def build():
         if line.startswith("### "):
             current_list_kind = None
             current_list_num = None
+            heading_text = line[4:].strip()
             p = doc.add_paragraph(style="Heading 2")
-            add_inline_markdown(p, line[4:].strip(), default_size=13, default_color=BLUE)
+            if heading_text.startswith(("9.6. ", "10.3. ")):
+                p.paragraph_format.page_break_before = True
+            add_inline_markdown(p, heading_text, default_size=13, default_color=BLUE)
             continue
         if line.startswith("#### "):
             current_list_kind = None

@@ -46,6 +46,8 @@ struct ContentView: View {
     @State private var historySearchResults: [TranscriptHistoryItem] = []
     @State private var historySearchTask: Task<Void, Never>?
     @State private var selectedQueueItemIDs: Set<UUID> = []
+    @State private var isBulkExportSelectionActive = false
+    @State private var selectedExportItemIDs: Set<UUID> = []
     @State private var editingHistoryItemID: UUID?
     @State private var historyRenameDraft = ""
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
@@ -132,6 +134,12 @@ struct ContentView: View {
             return "\(filteredHistoryItems.count)/\(viewModel.historyCount)"
         }
         return "\(viewModel.historyCount)"
+    }
+
+    private var visibleExportItemIDs: Set<UUID> {
+        Set(filteredHistoryItems.compactMap { item in
+            item.state == .completed && item.transcriptPath != nil ? item.id : nil
+        })
     }
 
     private var primaryQueueButtonTitle: String {
@@ -753,12 +761,48 @@ struct ContentView: View {
             Spacer(minLength: 4)
 
             if !viewModel.historyItems.isEmpty {
-                Button(action: toggleHistorySearch) {
-                    Image(systemName: isHistorySearchExpanded ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                if isBulkExportSelectionActive {
+                    Button(action: toggleAllVisibleExportItems) {
+                        Image(systemName: visibleExportItemIDs.isEmpty || !visibleExportItemIDs.isSubset(of: selectedExportItemIDs) ? "checkmark.square" : "checkmark.square.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(visibleExportItemIDs.isEmpty)
+                    .help(L10n.t("help.selectAllVisibleTranscripts"))
+
+                    Menu {
+                        Button(L10n.t("button.exportSelectedTXT")) {
+                            exportSelectedHistoryItems(as: .txt)
+                        }
+                        Button(L10n.t("button.exportSelectedJSON")) {
+                            exportSelectedHistoryItems(as: .json)
+                        }
+                    } label: {
+                        Image(systemName: "archivebox")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .disabled(selectedExportItemIDs.isEmpty)
+                    .help(L10n.f("help.exportSelectedTranscripts", selectedExportItemIDs.count))
+
+                    Button(action: cancelBulkExportSelection) {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(L10n.t("button.cancel"))
+                } else {
+                    Button(action: beginBulkExportSelection) {
+                        Image(systemName: "archivebox")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!viewModel.historyItems.contains(where: { $0.state == .completed && $0.transcriptPath != nil }))
+                    .help(L10n.t("help.bulkExportTranscripts"))
+
+                    Button(action: toggleHistorySearch) {
+                        Image(systemName: isHistorySearchExpanded ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(L10n.t("placeholder.historySearch"))
+                    .accessibilityLabel(L10n.t("placeholder.historySearch"))
                 }
-                .buttonStyle(.bordered)
-                .help(L10n.t("placeholder.historySearch"))
-                .accessibilityLabel(L10n.t("placeholder.historySearch"))
             }
         }
     }
@@ -825,6 +869,38 @@ struct ContentView: View {
         }
     }
 
+    private func beginBulkExportSelection() {
+        isBulkExportSelectionActive = true
+        selectedExportItemIDs.removeAll()
+    }
+
+    private func cancelBulkExportSelection() {
+        isBulkExportSelectionActive = false
+        selectedExportItemIDs.removeAll()
+    }
+
+    private func toggleAllVisibleExportItems() {
+        if !visibleExportItemIDs.isEmpty && visibleExportItemIDs.isSubset(of: selectedExportItemIDs) {
+            selectedExportItemIDs.subtract(visibleExportItemIDs)
+        } else {
+            selectedExportItemIDs.formUnion(visibleExportItemIDs)
+        }
+    }
+
+    private func toggleExportSelection(for id: UUID) {
+        if selectedExportItemIDs.contains(id) {
+            selectedExportItemIDs.remove(id)
+        } else {
+            selectedExportItemIDs.insert(id)
+        }
+    }
+
+    private func exportSelectedHistoryItems(as format: HistoryExportFormat) {
+        if viewModel.exportHistoryItems(selectedExportItemIDs, format: format) {
+            cancelBulkExportSelection()
+        }
+    }
+
     private func scheduleHistorySearch() {
         historySearchTask?.cancel()
 
@@ -862,11 +938,17 @@ struct ContentView: View {
         let metaText = viewModel.historyMetaText(for: item)
 
         return HistoryHoverView { isHovered in
-            let showsActions = editingHistoryItemID == item.id || isHovered
+            let canExportItem = item.state == .completed && item.transcriptPath != nil
+            let showsActions = !isBulkExportSelectionActive && (editingHistoryItemID == item.id || isHovered)
 
             VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
-                if canRunItem {
+                if isBulkExportSelectionActive, canExportItem {
+                    Image(systemName: selectedExportItemIDs.contains(item.id) ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(selectedExportItemIDs.contains(item.id) ? accentColor : .secondary)
+                    .help(L10n.t("help.selectTranscriptForExport"))
+                    .padding(.top, 0)
+                } else if canRunItem && !isBulkExportSelectionActive {
                     Button(action: { toggleQueueSelection(for: item.id) }) {
                         Image(systemName: selectedQueueItemIDs.contains(item.id) ? "checkmark.square.fill" : "square")
                             .foregroundStyle(selectedQueueItemIDs.contains(item.id) ? accentColor : .secondary)
@@ -1050,21 +1132,34 @@ struct ContentView: View {
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(
-                        viewModel.selectedHistoryItemID == item.id
+                        (isBulkExportSelectionActive && selectedExportItemIDs.contains(item.id))
+                            || viewModel.selectedHistoryItemID == item.id
                             ? accentColor.opacity(isDark ? 0.24 : 0.12)
                             : editorBackgroundColor.opacity(0.6)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(viewModel.selectedHistoryItemID == item.id ? accentColor.opacity(0.45) : editorBorderColor, lineWidth: 1)
+                    .stroke(
+                        (isBulkExportSelectionActive && selectedExportItemIDs.contains(item.id))
+                            || viewModel.selectedHistoryItemID == item.id
+                            ? accentColor.opacity(0.45)
+                            : editorBorderColor,
+                        lineWidth: 1
+                    )
             )
             .contentShape(Rectangle())
             .onTapGesture {
                 guard editingHistoryItemID != item.id else {
                     return
                 }
-                viewModel.openHistoryItem(item.id)
+                if isBulkExportSelectionActive {
+                    if canExportItem {
+                        toggleExportSelection(for: item.id)
+                    }
+                } else {
+                    viewModel.openHistoryItem(item.id)
+                }
             }
         }
     }

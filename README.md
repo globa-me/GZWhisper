@@ -40,7 +40,7 @@
 - Audio, video, microphone, system audio, or system audio + microphone.
 - Pause/resume recording and automatic recovery after interrupted sessions.
 - Searchable history, transcription queue, rename, delete with undo, and quick actions.
-- TXT and JSON export with timestamps and detected language.
+- TXT and JSON export, including multi-select ZIP archives with one file per transcript.
 - Russian, English, and Chinese interface.
 
 Your media, recordings, models, and transcripts stay on your Mac. Network access is only needed to download a model.
