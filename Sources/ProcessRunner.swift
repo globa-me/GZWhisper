@@ -2,6 +2,7 @@ import Foundation
 
 struct ProcessResult {
     let exitCode: Int32
+    let terminationReason: Process.TerminationReason
     let stdout: String
     let stderr: String
 }
@@ -67,7 +68,12 @@ enum ProcessRunner {
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
-        return ProcessResult(exitCode: process.terminationStatus, stdout: stdout, stderr: stderr)
+        return ProcessResult(
+            exitCode: process.terminationStatus,
+            terminationReason: process.terminationReason,
+            stdout: stdout,
+            stderr: stderr
+        )
     }
 
     static func runStreaming(
@@ -175,6 +181,11 @@ enum ProcessRunner {
         let stdout = String(data: stdoutFull, encoding: .utf8) ?? ""
         let stderr = String(data: stderrFull, encoding: .utf8) ?? ""
 
-        return ProcessResult(exitCode: process.terminationStatus, stdout: stdout, stderr: stderr)
+        return ProcessResult(
+            exitCode: process.terminationStatus,
+            terminationReason: process.terminationReason,
+            stdout: stdout,
+            stderr: stderr
+        )
     }
 }

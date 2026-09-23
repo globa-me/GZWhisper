@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON_BIN="${1:-$ROOT_DIR/Resources/python/bin/python3}"
 WHEELHOUSE_DIR="${2:-$ROOT_DIR/Resources/wheelhouse}"
 REQUIREMENTS_FILE="${3:-$ROOT_DIR/Resources/requirements-macos.txt}"
-TARGET_PLATFORM="${TARGET_PLATFORM:-macosx_12_0_arm64}"
+TARGET_ARCH="${TARGET_ARCH:-arm64}"
+TARGET_PLATFORM="${TARGET_PLATFORM:-macosx_12_0_${TARGET_ARCH}}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Wheelhouse check Python is not executable: $PYTHON_BIN"
@@ -37,6 +38,10 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Checking wheel resolution for Python 3.12 on $TARGET_PLATFORM..."
+if ! lipo -archs "$PYTHON_BIN" | tr ' ' '\n' | grep -qx "$TARGET_ARCH"; then
+  echo "Wheelhouse check Python does not contain $TARGET_ARCH: $PYTHON_BIN" >&2
+  exit 1
+fi
 "$PYTHON_BIN" -m pip download \
   --no-index \
   --find-links "$WHEELHOUSE_DIR" \
@@ -56,5 +61,10 @@ echo "Testing a clean offline installation..."
   --requirement "$REQUIREMENTS_FILE"
 "$CHECK_DIR/venv/bin/python3" -m pip check
 "$CHECK_DIR/venv/bin/python3" -c "import faster_whisper, huggingface_hub, onnxruntime, sympy"
+
+if ! lipo -archs "$CHECK_DIR/venv/bin/python3" | tr ' ' '\n' | grep -qx "$TARGET_ARCH"; then
+  echo "Clean venv Python does not contain $TARGET_ARCH" >&2
+  exit 1
+fi
 
 echo "Wheelhouse check passed."

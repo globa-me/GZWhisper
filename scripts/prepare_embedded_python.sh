@@ -14,11 +14,12 @@ else
   PYTHON_BIN="python3"
 fi
 INCLUDE_WHEELHOUSE="${INCLUDE_WHEELHOUSE:-1}"
-FRAMEWORK_DEST="$ROOT_DIR/Resources/Python.framework"
-RUNTIME_DEST="$ROOT_DIR/Resources/python"
-WHEELHOUSE_DEST="$ROOT_DIR/Resources/wheelhouse"
+TARGET_ARCH="${TARGET_ARCH:-arm64}"
+FRAMEWORK_DEST="${FRAMEWORK_DEST:-$ROOT_DIR/Resources/Python.framework}"
+RUNTIME_DEST="${RUNTIME_DEST:-$ROOT_DIR/Resources/python}"
+WHEELHOUSE_DEST="${WHEELHOUSE_DEST:-$ROOT_DIR/Resources/wheelhouse}"
 REQUIREMENTS_FILE="$ROOT_DIR/Resources/requirements-macos.txt"
-TARGET_PLATFORM="${TARGET_PLATFORM:-macosx_12_0_arm64}"
+TARGET_PLATFORM="${TARGET_PLATFORM:-macosx_12_0_${TARGET_ARCH}}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   echo "Python executable not found: $PYTHON_BIN"
@@ -47,10 +48,9 @@ if [[ "$PYTHON_MINOR" -ne 12 ]]; then
   exit 1
 fi
 
-if ! file "$PYTHON_BIN" | grep -q "arm64"; then
-  echo "Selected Python runtime is not arm64: $PYTHON_BIN"
-  echo "Use an Apple Silicon interpreter, for example:"
-  echo "PYTHON_BIN=Resources/python/bin/python3 ./scripts/prepare_embedded_python.sh"
+if ! lipo -archs "$PYTHON_BIN" | tr ' ' '\n' | grep -qx "$TARGET_ARCH"; then
+  echo "Selected Python runtime does not contain $TARGET_ARCH: $PYTHON_BIN"
+  echo "Use a Python interpreter for the selected target architecture."
   exit 1
 fi
 
@@ -84,7 +84,8 @@ if [[ "$INCLUDE_WHEELHOUSE" == "1" ]]; then
     --dest "$WHEELHOUSE_DEST" \
     --requirement "$REQUIREMENTS_FILE"
 
-  "$ROOT_DIR/scripts/check_wheelhouse.sh" "$PYTHON_BIN" "$WHEELHOUSE_DEST" "$REQUIREMENTS_FILE"
+  TARGET_ARCH="$TARGET_ARCH" TARGET_PLATFORM="$TARGET_PLATFORM" \
+    "$ROOT_DIR/scripts/check_wheelhouse.sh" "$PYTHON_BIN" "$WHEELHOUSE_DEST" "$REQUIREMENTS_FILE"
 fi
 
 echo "Embedded runtime prepared: $EMBEDDED_RUNTIME_DESC"

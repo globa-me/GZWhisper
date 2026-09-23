@@ -1,13 +1,40 @@
 #!/usr/bin/env python3
 import argparse
+import faulthandler
 import json
 import os
+import platform
 import sys
 import threading
+import time
 from pathlib import Path
 
+faulthandler.enable(all_threads=True)
+
+
+def diagnostic(stage, **details):
+    """Persist coarse worker stages without ever writing transcript contents."""
+    log_path = os.environ.get("GZWHISPER_WORKER_LOG_PATH")
+    if not log_path:
+        return
+
+    payload = {
+        "timestamp": time.time(),
+        "pid": os.getpid(),
+        "stage": stage,
+        **details,
+    }
+    try:
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        # Diagnostics must never break transcription.
+        pass
+
 DEFAULT_REPO_CANDIDATES = [
-    "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "dropbox-dash/faster-whisper-large-v3-turbo",
     "SYSTRAN/faster-whisper-large-v3",
 ]
 
@@ -276,25 +303,42 @@ def cmd_validate_model(args):
 def cmd_transcribe(args):
     model_path = Path(args.model_path).expanduser().resolve()
     audio_path = Path(args.input).expanduser().resolve()
+    safe_intel_mode = os.environ.get("GZWHISPER_SAFE_INTEL_MODE") == "1"
+
+    diagnostic(
+        "worker_started",
+        python=sys.version.split()[0],
+        machine=platform.machine(),
+        safe_intel_mode=safe_intel_mode,
+    )
 
     if not audio_path.exists():
+        diagnostic("input_missing")
         emit({"ok": False, "error": t("file_not_found", path=audio_path)})
         sys.exit(1)
 
     if not model_path.exists():
+        diagnostic("model_missing")
         emit({"ok": False, "error": t("local_model_not_found", path=model_path)})
         sys.exit(1)
 
+    diagnostic("input_validated", input_size_bytes=audio_path.stat().st_size)
+    diagnostic("engine_import_started")
     WhisperModel = import_whisper_model()
+    diagnostic("engine_import_completed")
 
     try:
+        diagnostic("model_load_started")
         model = WhisperModel(
             str(model_path),
-            device="auto",
+            device="cpu",
             compute_type="int8",
+            cpu_threads=2 if safe_intel_mode else 0,
             local_files_only=True,
         )
+        diagnostic("model_load_completed")
     except Exception as exc:
+        diagnostic("model_load_failed", exception_type=type(exc).__name__, details=str(exc))
         emit(
             {
                 "ok": False,
@@ -305,9 +349,10 @@ def cmd_transcribe(args):
         sys.exit(1)
 
     try:
+        diagnostic("transcription_started", beam_size=1 if safe_intel_mode else 5)
         segments, info = model.transcribe(
             str(audio_path),
-            beam_size=5,
+            beam_size=1 if safe_intel_mode else 5,
             vad_filter=True,
             language=args.language,
         )
@@ -342,6 +387,12 @@ def cmd_transcribe(args):
                 }
             )
 
+        diagnostic(
+            "transcription_completed",
+            segment_count=len(items),
+            duration_seconds=total_seconds,
+            detected_language=getattr(info, "language", None),
+        )
         full_text = "\n".join(text_parts)
         payload = {
             "ok": True,
@@ -352,7 +403,9 @@ def cmd_transcribe(args):
             "segments": items,
         }
         emit(payload)
+        diagnostic("result_emitted")
     except Exception as exc:
+        diagnostic("transcription_failed", exception_type=type(exc).__name__, details=str(exc))
         emit(
             {
                 "ok": False,

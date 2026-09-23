@@ -24,6 +24,88 @@ struct LocalModelReference: Codable, Sendable {
     let sourceType: SourceType
     let sourceRepo: String?
     let configuredAt: String
+    let ownershipToken: String?
+
+    init(
+        modelID: String,
+        modelPath: String,
+        sourceType: SourceType,
+        sourceRepo: String?,
+        configuredAt: String,
+        ownershipToken: String? = nil
+    ) {
+        self.modelID = modelID
+        self.modelPath = modelPath
+        self.sourceType = sourceType
+        self.sourceRepo = sourceRepo
+        self.configuredAt = configuredAt
+        self.ownershipToken = ownershipToken
+    }
+}
+
+enum MacProcessorFamily: Sendable {
+    case appleSilicon
+    case intel
+
+    static var current: MacProcessorFamily {
+        var info = utsname()
+        uname(&info)
+        let machine = withUnsafePointer(to: &info.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
+        }
+        return machine == "arm64" ? .appleSilicon : .intel
+    }
+}
+
+struct WhisperModelOption: Identifiable, Sendable {
+    enum Recommendation: Sendable {
+        case best
+        case recommended
+        case supported
+        case demanding
+    }
+
+    let id: String
+    let displayName: String
+    let approximateDownloadGB: Double
+    let minimumRAMGB: Int
+    let recommendedRAMGB: Int
+    let appleSiliconRecommendation: Recommendation
+    let intelRecommendation: Recommendation
+    let qualityRank: Int
+    let speedRank: Int
+
+    var repositoryID: String { id }
+
+    func matches(modelID: String) -> Bool {
+        if repositoryID == "dropbox-dash/faster-whisper-large-v3-turbo" {
+            return [repositoryID, "mobiuslabsgmbh/faster-whisper-large-v3-turbo"].contains {
+                $0.caseInsensitiveCompare(modelID) == .orderedSame
+            }
+        }
+        return repositoryID.caseInsensitiveCompare(modelID) == .orderedSame
+    }
+
+    var currentRecommendation: Recommendation {
+        let ramGB = Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824)
+        if MacProcessorFamily.current == .appleSilicon {
+            if ramGB < 12 {
+                if displayName == "Whisper Small" { return .best }
+                if displayName == "Whisper Base" { return .recommended }
+                if displayName.contains("Large") { return .demanding }
+            }
+            return appleSiliconRecommendation
+        }
+
+        if ramGB < 12 {
+            if displayName == "Whisper Base" { return .best }
+            if displayName == "Whisper Small" { return .recommended }
+        } else {
+            if displayName == "Whisper Small" { return .best }
+            if displayName == "Whisper Base" { return .recommended }
+        }
+        return intelRecommendation
+    }
 }
 
 enum ModelDownloadEvent: Sendable {
@@ -123,10 +205,35 @@ final class TranscriptionRunHandle: @unchecked Sendable {
 final class WhisperEngine: @unchecked Sendable {
     static let shared = WhisperEngine()
 
-    static let modelRepoCandidates = [
-        "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
-        "SYSTRAN/faster-whisper-large-v3",
+    static let modelCatalog: [WhisperModelOption] = [
+        WhisperModelOption(
+            id: "Systran/faster-whisper-tiny", displayName: "Whisper Tiny", approximateDownloadGB: 0.08,
+            minimumRAMGB: 8, recommendedRAMGB: 8, appleSiliconRecommendation: .supported, intelRecommendation: .supported,
+            qualityRank: 1, speedRank: 5
+        ),
+        WhisperModelOption(
+            id: "Systran/faster-whisper-base", displayName: "Whisper Base", approximateDownloadGB: 0.15,
+            minimumRAMGB: 8, recommendedRAMGB: 8, appleSiliconRecommendation: .supported, intelRecommendation: .recommended,
+            qualityRank: 2, speedRank: 4
+        ),
+        WhisperModelOption(
+            id: "Systran/faster-whisper-small", displayName: "Whisper Small", approximateDownloadGB: 0.49,
+            minimumRAMGB: 8, recommendedRAMGB: 16, appleSiliconRecommendation: .recommended, intelRecommendation: .best,
+            qualityRank: 3, speedRank: 3
+        ),
+        WhisperModelOption(
+            id: "dropbox-dash/faster-whisper-large-v3-turbo", displayName: "Whisper Large v3 Turbo", approximateDownloadGB: 1.6,
+            minimumRAMGB: 8, recommendedRAMGB: 16, appleSiliconRecommendation: .best, intelRecommendation: .demanding,
+            qualityRank: 4, speedRank: 3
+        ),
+        WhisperModelOption(
+            id: "Systran/faster-whisper-large-v3", displayName: "Whisper Large v3", approximateDownloadGB: 3.1,
+            minimumRAMGB: 16, recommendedRAMGB: 24, appleSiliconRecommendation: .demanding, intelRecommendation: .demanding,
+            qualityRank: 5, speedRank: 1
+        ),
     ]
+
+    static let modelRepoCandidates = modelCatalog.map(\.repositoryID)
 
     static var modelSourceURLs: [String] {
         modelRepoCandidates.map { "https://huggingface.co/\($0)" }
@@ -138,6 +245,14 @@ final class WhisperEngine: @unchecked Sendable {
     private let venvDirectory: URL
     private let workerScriptURL: URL
     private let modelReferenceURL: URL
+    private let modelRegistryURL: URL
+    private let workerLogsDirectory: URL
+    private static let managedModelMarkerName = ".gzwhisper-model.json"
+
+    private struct ManagedModelMarker: Codable {
+        let modelID: String
+        let ownershipToken: String
+    }
 
     private init() {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -145,6 +260,8 @@ final class WhisperEngine: @unchecked Sendable {
         venvDirectory = supportDirectory.appendingPathComponent("venv", isDirectory: true)
         workerScriptURL = supportDirectory.appendingPathComponent("transcription_worker.py")
         modelReferenceURL = supportDirectory.appendingPathComponent("selected_model.json")
+        modelRegistryURL = supportDirectory.appendingPathComponent("installed_models.json")
+        workerLogsDirectory = supportDirectory.appendingPathComponent("Worker Logs", isDirectory: true)
     }
 
     func defaultDownloadDirectory() -> URL {
@@ -169,6 +286,26 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         return reference
+    }
+
+    func installedModelReferences() -> [LocalModelReference] {
+        var references = loadModelRegistry()
+        if let current = currentModelReference(), !references.contains(where: { $0.modelPath == current.modelPath }) {
+            references.append(current)
+            try? saveModelRegistry(references)
+        }
+        let available = references.filter { fileManager.fileExists(atPath: $0.modelPath) }
+        if available.count != references.count {
+            try? saveModelRegistry(available)
+        }
+        return available
+    }
+
+    func selectModel(_ reference: LocalModelReference) throws {
+        guard fileManager.fileExists(atPath: reference.modelPath) else {
+            throw WhisperEngineError.modelMissing
+        }
+        try activateAndRegisterModel(reference)
     }
 
     func prepareEnvironment(status: (String) -> Void) throws {
@@ -197,8 +334,13 @@ final class WhisperEngine: @unchecked Sendable {
     func debugReport() -> String {
         var lines: [String] = []
         lines.append("bundle_path: \(Bundle.main.bundleURL.path)")
+        lines.append("processor_family: \(MacProcessorFamily.current == .appleSilicon ? "apple_silicon" : "intel")")
+        lines.append("processor_count: \(ProcessInfo.processInfo.processorCount)")
+        lines.append("active_processor_count: \(ProcessInfo.processInfo.activeProcessorCount)")
+        lines.append("physical_memory_bytes: \(ProcessInfo.processInfo.physicalMemory)")
         lines.append("support_directory: \(supportDirectory.path)")
         lines.append("worker_script: \(workerScriptURL.path)")
+        lines.append("worker_logs_directory: \(workerLogsDirectory.path)")
         lines.append("model_reference: \(modelReferenceURL.path)")
 
         if let reference = currentModelReference() {
@@ -247,10 +389,23 @@ final class WhisperEngine: @unchecked Sendable {
             lines.append("venv_executable: \(executable)")
         }
 
+        let recentLogs = recentWorkerLogURLs(limit: 2)
+        lines.append("recent_worker_log_count: \(recentLogs.count)")
+        for logURL in recentLogs {
+            lines.append("--- worker_log: \(logURL.lastPathComponent) ---")
+            if let contents = try? String(contentsOf: logURL, encoding: .utf8) {
+                lines.append(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+            } else {
+                lines.append("unreadable")
+            }
+            lines.append("--- end_worker_log ---")
+        }
+
         return lines.joined(separator: "\n")
     }
 
     func downloadModel(
+        option: WhisperModelOption,
         to destinationDirectory: URL,
         status: (String) -> Void,
         onEvent: @escaping (ModelDownloadEvent) -> Void
@@ -258,7 +413,16 @@ final class WhisperEngine: @unchecked Sendable {
         try prepareEnvironment(status: status)
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
 
-        status(L10n.t("engine.downloadingModel"))
+        let expectedModelDirectory = destinationDirectory.appendingPathComponent(
+            option.repositoryID.replacingOccurrences(of: "/", with: "--"),
+            isDirectory: true
+        )
+        let ownershipToken = try prepareManagedModelMarker(
+            modelID: option.repositoryID,
+            modelDirectory: expectedModelDirectory
+        )
+
+        status(L10n.f("engine.downloadingNamedModel", option.displayName))
 
         var arguments = [
             workerScriptURL.path,
@@ -266,9 +430,7 @@ final class WhisperEngine: @unchecked Sendable {
             "--output-dir", destinationDirectory.path,
         ]
 
-        for repo in Self.modelRepoCandidates {
-            arguments.append(contentsOf: ["--repo-id", repo])
-        }
+        arguments.append(contentsOf: ["--repo-id", option.repositoryID])
 
         var finalPayload: [String: Any]?
 
@@ -313,15 +475,20 @@ final class WhisperEngine: @unchecked Sendable {
             throw WhisperEngineError.malformedResponse
         }
 
+        let downloadedURL = URL(fileURLWithPath: modelPath).standardizedFileURL
+        let ownsDownloadedDirectory = downloadedURL == expectedModelDirectory.standardizedFileURL
+            ? ownershipToken
+            : nil
         let reference = LocalModelReference(
             modelID: modelID,
             modelPath: modelPath,
-            sourceType: .downloaded,
+            sourceType: ownsDownloadedDirectory == nil ? .linked : .downloaded,
             sourceRepo: finalPayload["repo_id"] as? String,
-            configuredAt: ISO8601DateFormatter().string(from: Date())
+            configuredAt: ISO8601DateFormatter().string(from: Date()),
+            ownershipToken: ownsDownloadedDirectory
         )
 
-        try saveModelReference(reference)
+        try activateAndRegisterModel(reference)
         return reference
     }
 
@@ -359,8 +526,42 @@ final class WhisperEngine: @unchecked Sendable {
             configuredAt: ISO8601DateFormatter().string(from: Date())
         )
 
-        try saveModelReference(reference)
+        try activateAndRegisterModel(reference)
         return reference
+    }
+
+    func deleteModel(_ reference: LocalModelReference) throws -> ModelDeleteOutcome {
+        var references = loadModelRegistry()
+        references.removeAll { $0.modelPath == reference.modelPath }
+
+        if loadSavedModelReference()?.modelPath == reference.modelPath {
+            if let fallback = references.last(where: { fileManager.fileExists(atPath: $0.modelPath) }) {
+                try saveModelReference(fallback)
+            } else {
+                try clearModelReference()
+            }
+        }
+
+        let outcome: ModelDeleteOutcome
+        switch reference.sourceType {
+        case .downloaded:
+            if isAppDownloadedModelDirectory(reference), fileManager.fileExists(atPath: reference.modelPath) {
+                try fileManager.removeItem(atPath: reference.modelPath)
+                outcome = .deletedFiles(path: reference.modelPath)
+            } else {
+                // A stale or edited registry must never authorize recursive deletion.
+                outcome = .unlinked(path: reference.modelPath)
+            }
+        case .linked:
+            outcome = .unlinked(path: reference.modelPath)
+        }
+
+        try saveModelRegistry(references)
+        return outcome
+    }
+
+    func deletionRemovesFiles(for reference: LocalModelReference) -> Bool {
+        reference.sourceType == .downloaded && isAppDownloadedModelDirectory(reference)
     }
 
     func deleteCurrentModel() throws -> ModelDeleteOutcome {
@@ -368,17 +569,7 @@ final class WhisperEngine: @unchecked Sendable {
             throw WhisperEngineError.modelMissing
         }
 
-        switch reference.sourceType {
-        case .downloaded:
-            if fileManager.fileExists(atPath: reference.modelPath) {
-                try fileManager.removeItem(atPath: reference.modelPath)
-            }
-            try clearModelReference()
-            return .deletedFiles(path: reference.modelPath)
-        case .linked:
-            try clearModelReference()
-            return .unlinked(path: reference.modelPath)
-        }
+        return try deleteModel(reference)
     }
 
     func transcribe(
@@ -408,45 +599,80 @@ final class WhisperEngine: @unchecked Sendable {
             arguments.append(contentsOf: ["--language", languageCode])
         }
 
-        var finalPayload: [String: Any]?
         defer {
             runHandle?.clear()
         }
 
-        let result = try runPythonStreaming(
-            arguments: arguments,
-            onStart: { process in
-                runHandle?.attach(process)
-            }
-        ) { line in
-            guard let json = self.parseJSONLine(line) else { return }
+        func executeWorker(safeIntelMode: Bool) throws -> (ProcessResult, [String: Any]?) {
+            var finalPayload: [String: Any]?
+            let logURL = try createWorkerLog(
+                inputAudioURL: inputAudioURL,
+                modelID: reference.modelID,
+                safeIntelMode: safeIntelMode
+            )
+            var environmentOverrides = safeIntelMode ? [
+                "GZWHISPER_SAFE_INTEL_MODE": "1",
+                "CT2_FORCE_CPU_ISA": "GENERIC",
+                "CT2_PACKED_GEMM": "0",
+                "CT2_USE_MKL": "0",
+                "OMP_NUM_THREADS": "2",
+            ] : [:]
+            environmentOverrides["GZWHISPER_WORKER_LOG_PATH"] = logURL.path
 
-            if let event = json["event"] as? String {
-                switch event {
-                case "progress":
-                    let processed = (json["processed_seconds"] as? NSNumber)?.doubleValue ?? 0
-                    let totalNumber = json["total_seconds"] as? NSNumber
-                    onEvent(.progress(processedSeconds: processed, totalSeconds: totalNumber?.doubleValue))
-                default:
-                    break
+            do {
+                let result = try runPythonStreaming(
+                    arguments: arguments,
+                    environmentOverrides: environmentOverrides,
+                    onStart: { process in
+                        runHandle?.attach(process)
+                    }
+                ) { line in
+                    guard let json = self.parseJSONLine(line) else { return }
+
+                    if let event = json["event"] as? String {
+                        switch event {
+                        case "progress":
+                            let processed = (json["processed_seconds"] as? NSNumber)?.doubleValue ?? 0
+                            let totalNumber = json["total_seconds"] as? NSNumber
+                            onEvent(.progress(processedSeconds: processed, totalSeconds: totalNumber?.doubleValue))
+                        default:
+                            break
+                        }
+                        return
+                    }
+
+                    if json["ok"] != nil {
+                        finalPayload = json
+                    }
                 }
-                return
-            }
 
-            if json["ok"] != nil {
-                finalPayload = json
+                appendWorkerCompletion(result, to: logURL)
+                rotateWorkerLogs(keeping: 8)
+                return (result, finalPayload)
+            } catch {
+                appendWorkerLogLine("launch_error: \(error.localizedDescription)", to: logURL)
+                rotateWorkerLogs(keeping: 8)
+                throw error
             }
         }
 
-        let payload = finalPayload
+        var (result, payload) = try executeWorker(safeIntelMode: false)
+
+        if result.exitCode != 0,
+           result.terminationReason == .uncaughtSignal,
+           MacProcessorFamily.current == .intel,
+           runHandle?.isCancellationRequested != true {
+            status(L10n.t("engine.retryingSafeIntel"))
+            (result, payload) = try executeWorker(safeIntelMode: true)
+        }
 
         if result.exitCode != 0 || payload?["ok"] as? Bool != true {
             if runHandle?.isCancellationRequested == true {
                 throw TranscriptionCancellationError.cancelled
             }
-            let details = payload?["details"] as? String
-            let message = payload?["error"] as? String ?? result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw WhisperEngineError.commandFailed(message: details.map { "\(message)\n\($0)" } ?? message)
+            throw WhisperEngineError.commandFailed(
+                message: workerFailureMessage(result: result, payload: payload, modelID: reference.modelID)
+            )
         }
 
         guard let payload else {
@@ -524,10 +750,11 @@ final class WhisperEngine: @unchecked Sendable {
 
     private func ensureDependencies(status: (String) -> Void) throws {
         let pythonURL = try resolvedVenvPythonURL()
+        let requirementsURL = bundledRequirementsURL()
 
         let checkResult = try ProcessRunner.run(
             executableURL: pythonURL,
-            arguments: ["-c", "import faster_whisper, huggingface_hub"],
+            arguments: dependencyCheckArguments(requirementsURL: requirementsURL),
             environment: pythonEnvironment()
         )
 
@@ -536,6 +763,8 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         status(L10n.t("engine.installingDeps"))
+        let requestedPackages = requirementsURL.map { ["--requirement", $0.path] }
+            ?? ["faster-whisper", "huggingface_hub"]
 
         var offlineInstallDetails: String?
 
@@ -547,9 +776,7 @@ final class WhisperEngine: @unchecked Sendable {
                     "--no-index",
                     "--find-links", wheelhouseURL.path,
                     "--upgrade",
-                    "faster-whisper",
-                    "huggingface_hub",
-                ],
+                ] + requestedPackages,
                 environment: pythonEnvironment()
             )
 
@@ -568,7 +795,7 @@ final class WhisperEngine: @unchecked Sendable {
 
         let installResult = try ProcessRunner.run(
             executableURL: pythonURL,
-            arguments: ["-m", "pip", "install", "--upgrade", "faster-whisper", "huggingface_hub"],
+            arguments: ["-m", "pip", "install", "--upgrade"] + requestedPackages,
             environment: pythonEnvironment()
         )
 
@@ -587,6 +814,31 @@ final class WhisperEngine: @unchecked Sendable {
         }
     }
 
+    private func dependencyCheckArguments(requirementsURL: URL?) -> [String] {
+        guard let requirementsURL else {
+            return ["-c", "import faster_whisper, huggingface_hub, ctranslate2"]
+        }
+
+        let script = """
+        import importlib.metadata as metadata
+        import pathlib
+        import sys
+
+        for raw_line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "==" not in line:
+                continue
+            name, expected = line.split("==", 1)
+            if metadata.version(name.strip()) != expected.strip():
+                raise SystemExit(1)
+
+        import ctranslate2
+        import faster_whisper
+        import huggingface_hub
+        """
+        return ["-c", script, requirementsURL.path]
+    }
+
     private func processFailureDetails(_ result: ProcessResult) -> String {
         let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         if !stderr.isEmpty {
@@ -595,6 +847,120 @@ final class WhisperEngine: @unchecked Sendable {
 
         let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return stdout.isEmpty ? L10n.t("engine.noProcessOutput") : stdout
+    }
+
+    private func workerFailureMessage(
+        result: ProcessResult,
+        payload: [String: Any]?,
+        modelID: String
+    ) -> String {
+        let message = (payload?["error"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let details = (payload?["details"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let message, !message.isEmpty {
+            if let details, !details.isEmpty {
+                return "\(message)\n\(details)"
+            }
+            return message
+        }
+
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stderr.isEmpty {
+            return stderr
+        }
+
+        if result.terminationReason == .uncaughtSignal {
+            if MacProcessorFamily.current == .intel {
+                return L10n.f("engine.workerTerminatedIntel", result.exitCode, modelID)
+            }
+            return L10n.f("engine.workerTerminatedSignal", result.exitCode)
+        }
+
+        return L10n.f("engine.workerExitedNoOutput", result.exitCode)
+    }
+
+    private func createWorkerLog(
+        inputAudioURL: URL,
+        modelID: String,
+        safeIntelMode: Bool
+    ) throws -> URL {
+        try fileManager.createDirectory(at: workerLogsDirectory, withIntermediateDirectories: true)
+        let timestamp = Int(Date().timeIntervalSince1970 * 1_000)
+        let mode = safeIntelMode ? "intel-safe" : "normal"
+        let logURL = workerLogsDirectory.appendingPathComponent(
+            "worker-\(timestamp)-\(mode)-\(UUID().uuidString.prefix(8)).log"
+        )
+        let inputSize = (try? inputAudioURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        let processorFamily = MacProcessorFamily.current == .appleSilicon ? "apple_silicon" : "intel"
+        let header = [
+            "started_at: \(ISO8601DateFormatter().string(from: Date()))",
+            "app_version: \(appVersion)",
+            "app_build: \(appBuild)",
+            "processor_family: \(processorFamily)",
+            "processor_count: \(ProcessInfo.processInfo.processorCount)",
+            "physical_memory_bytes: \(ProcessInfo.processInfo.physicalMemory)",
+            "model_id: \(modelID)",
+            "input_name: \(inputAudioURL.lastPathComponent)",
+            "input_size_bytes: \(inputSize)",
+            "safe_intel_mode: \(safeIntelMode)",
+        ].joined(separator: "\n") + "\n"
+        try Data(header.utf8).write(to: logURL, options: .atomic)
+        return logURL
+    }
+
+    private func appendWorkerCompletion(_ result: ProcessResult, to logURL: URL) {
+        let reason = result.terminationReason == .uncaughtSignal ? "uncaught_signal" : "exit"
+        var lines = [
+            "finished_at: \(ISO8601DateFormatter().string(from: Date()))",
+            "termination_reason: \(reason)",
+            "termination_status: \(result.exitCode)",
+        ]
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stderr.isEmpty {
+            lines.append("stderr_tail:")
+            lines.append(String(stderr.suffix(16_384)))
+        }
+        appendWorkerLogLine(lines.joined(separator: "\n"), to: logURL)
+    }
+
+    private func appendWorkerLogLine(_ line: String, to logURL: URL) {
+        guard let data = (line + "\n").data(using: .utf8),
+              let handle = try? FileHandle(forWritingTo: logURL) else { return }
+        defer { try? handle.close() }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+        } catch {
+            return
+        }
+    }
+
+    private func recentWorkerLogURLs(limit: Int) -> [URL] {
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: workerLogsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return urls
+            .filter { $0.pathExtension == "log" }
+            .sorted {
+                let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return lhs > rhs
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private func rotateWorkerLogs(keeping limit: Int) {
+        for logURL in recentWorkerLogURLs(limit: Int.max).dropFirst(limit) {
+            try? fileManager.removeItem(at: logURL)
+        }
     }
 
     private func runPython(arguments: [String]) throws -> ProcessResult {
@@ -608,13 +974,14 @@ final class WhisperEngine: @unchecked Sendable {
 
     private func runPythonStreaming(
         arguments: [String],
+        environmentOverrides: [String: String] = [:],
         onStart: ((Process) -> Void)? = nil,
         onLine: @escaping (String) -> Void
     ) throws -> ProcessResult {
         try ProcessRunner.runStreaming(
             executableURL: resolvedVenvPythonURL(),
             arguments: arguments,
-            environment: pythonEnvironment(includeWorkerSettings: true),
+            environment: pythonEnvironment(includeWorkerSettings: true).merging(environmentOverrides) { _, new in new },
             currentDirectoryURL: supportDirectory,
             onStart: onStart,
             onStdoutLine: onLine,
@@ -690,6 +1057,12 @@ final class WhisperEngine: @unchecked Sendable {
         }
 
         return wheelhouseURL
+    }
+
+    private func bundledRequirementsURL() -> URL? {
+        guard let resourcesURL = Bundle.main.resourceURL else { return nil }
+        let url = resourcesURL.appendingPathComponent("requirements-macos.txt")
+        return fileManager.fileExists(atPath: url.path) ? url : nil
     }
 
     private var venvPythonURL: URL {
@@ -824,6 +1197,76 @@ final class WhisperEngine: @unchecked Sendable {
         try fileManager.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(reference)
         try data.write(to: modelReferenceURL, options: .atomic)
+    }
+
+    private func loadModelRegistry() -> [LocalModelReference] {
+        guard
+            let data = try? Data(contentsOf: modelRegistryURL),
+            let references = try? JSONDecoder().decode([LocalModelReference].self, from: data)
+        else {
+            return []
+        }
+        return references
+    }
+
+    private func saveModelRegistry(_ references: [LocalModelReference]) throws {
+        try fileManager.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(references)
+        try data.write(to: modelRegistryURL, options: .atomic)
+    }
+
+    private func activateAndRegisterModel(_ reference: LocalModelReference) throws {
+        let originalReferences = loadModelRegistry()
+        var references = originalReferences
+        references.removeAll { $0.modelPath == reference.modelPath || $0.modelID == reference.modelID }
+        references.append(reference)
+        try saveModelRegistry(references)
+        do {
+            try saveModelReference(reference)
+        } catch {
+            try? saveModelRegistry(originalReferences)
+            throw error
+        }
+    }
+
+    private func prepareManagedModelMarker(modelID: String, modelDirectory: URL) throws -> String? {
+        let markerURL = modelDirectory.appendingPathComponent(Self.managedModelMarkerName)
+        var isDirectory: ObjCBool = false
+
+        if fileManager.fileExists(atPath: modelDirectory.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue,
+                  let data = try? Data(contentsOf: markerURL),
+                  let marker = try? JSONDecoder().decode(ManagedModelMarker.self, from: data),
+                  marker.modelID == modelID
+            else {
+                // Existing unmarked directories may belong to the user and are never claimed by the app.
+                return nil
+            }
+            return marker.ownershipToken
+        }
+
+        try fileManager.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+        let marker = ManagedModelMarker(modelID: modelID, ownershipToken: UUID().uuidString)
+        let data = try JSONEncoder().encode(marker)
+        try data.write(to: markerURL, options: .atomic)
+        return marker.ownershipToken
+    }
+
+    private func isAppDownloadedModelDirectory(_ reference: LocalModelReference) -> Bool {
+        guard let ownershipToken = reference.ownershipToken else { return false }
+        let url = URL(fileURLWithPath: reference.modelPath).standardizedFileURL
+        guard url.pathComponents.count > 2 else { return false }
+        let markerURL = url.appendingPathComponent(Self.managedModelMarkerName)
+        guard
+            let markerData = try? Data(contentsOf: markerURL),
+            let marker = try? JSONDecoder().decode(ManagedModelMarker.self, from: markerData),
+            marker.modelID == reference.modelID,
+            marker.ownershipToken == ownershipToken
+        else {
+            return false
+        }
+        return fileManager.fileExists(atPath: url.appendingPathComponent("config.json").path)
+            && fileManager.fileExists(atPath: url.appendingPathComponent("model.bin").path)
     }
 
     private func clearModelReference() throws {

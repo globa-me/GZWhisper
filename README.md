@@ -10,15 +10,17 @@
 
 <p align="center">
   <img alt="Release" src="https://img.shields.io/github/v/release/globa-me/GZWhisper?style=flat-square&color=172554">
-  <img alt="macOS 12+" src="https://img.shields.io/badge/macOS-12%2B-172554?style=flat-square&logo=apple">
-  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0f766e?style=flat-square">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-172554?style=flat-square&logo=apple">
+  <img alt="Apple Silicon and Intel" src="https://img.shields.io/badge/Mac-arm64%20%7C%20x86__64-0f766e?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/privacy-local--first-0f766e?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.2.dmg"><strong>Download DMG</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Apple-Silicon.dmg"><strong>Apple Silicon DMG</strong></a>
   ·
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.2.zip"><strong>Download ZIP</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Intel.dmg"><strong>Intel DMG</strong></a>
+  ·
+  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.3.zip"><strong>Apple Silicon ZIP</strong></a>
   ·
   <a href="docs/GZWHISPER_PRODUCT_FUNCTIONALITY_RU.md">Описание на русском</a>
 </p>
@@ -46,10 +48,13 @@
 
 ## Highlights
 
-- Local transcription with Whisper-compatible models from Hugging Face.
+- Local transcription with a downloadable catalog of Whisper-compatible models from Hugging Face.
+- Apple Silicon/Intel-aware model recommendations, approximate RAM and disk requirements, switching, and removal.
+- Intel-safe retry and explicit diagnostics when the native transcription worker is terminated unexpectedly.
 - Audio, video, microphone, system audio, or system audio + microphone.
 - Pause/resume recording and automatic recovery after interrupted sessions.
 - Searchable history, transcription queue, rename, delete with undo, and quick actions.
+- Draft edits save automatically; queued imports survive restart; history rows work with the keyboard and VoiceOver.
 - TXT and JSON export, including multi-select ZIP archives with one file per transcript.
 - Russian, English, and Chinese interface.
 
@@ -57,11 +62,13 @@ Your media, recordings, models, and transcripts stay on your Mac. Network access
 
 ## Install on macOS
 
-Current release: **v1.5.2 · build 270826**.
+Current release: **v1.5.3 · build 270827**.
 
-Requirements: Apple Silicon Mac, macOS 12 or later. System-audio recording requires macOS 13 or later.
+[v1.5.3 change notes](docs/RELEASE_NOTES_1.5.3_RU.md)
 
-1. Download the [DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.2.dmg) or [ZIP](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.2.zip).
+Requirements for the architecture-specific builds: Apple Silicon or 64-bit Intel Mac, macOS 14 or later. Both macOS 14 and macOS 15 are supported.
+
+1. Download the [Apple Silicon DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Apple-Silicon.dmg), [Intel DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Intel.dmg), or [Apple Silicon ZIP](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.3.zip).
 2. Move `GZWhisper.app` to `/Applications`.
 3. Open the app and allow microphone or system-audio access when needed.
 
@@ -89,11 +96,20 @@ The macOS build uses the bundled Python runtime and offline wheelhouse. Release 
 ./scripts/build_dmg.sh
 ```
 
+To build, sign, notarize, and staple separate Apple Silicon and Intel DMGs:
+
+```bash
+./scripts/build_macos_variants.sh
+```
+
+The resulting artifacts are written to `build/releases/Apple-Silicon/` and `build/releases/Intel/`. Building locally does not publish or replace the GitHub release downloads above.
+
 ## Platform status
 
 | Platform | Status | Source / guide |
 |---|---|---|
-| macOS arm64 | Primary, tested | `Sources/` |
+| macOS arm64 | Stable, tested | `Sources/` |
+| macOS x86_64 | Build verified through Rosetta x86_64 execution; physical Intel smoke-test recommended | `Sources/` |
 | Linux | Experimental | `linux/gzwhisper_linux.py` |
 | Windows portable | Experimental | [Windows guide](docs/WINDOWS_PORTABLE.md) |
 
@@ -113,3 +129,5 @@ codesign --verify --deep --strict build/GZWhisper.app
 ```
 
 Built and maintained by [Gennadiy Zakharov](https://zakharov.asia/).
+
+For Developer ID signing and notarized DMG builds, see [macOS distribution](docs/MACOS_DISTRIBUTION.md).

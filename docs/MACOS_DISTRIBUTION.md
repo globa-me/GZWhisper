@@ -1,0 +1,104 @@
+# Developer ID distribution
+
+Use a Developer ID Application certificate with its private key. Current team:
+`BN3D9H4C7J`. Store notarization credentials locally with `xcrun notarytool
+store-credentials GZWhisper`; never put passwords in this repository.
+
+```bash
+ALLOW_APPLE_DEVELOPMENT_FALLBACK=0 ./scripts/build_app.sh
+./scripts/notarize_release.sh
+```
+
+For separate macOS 14+ Apple Silicon and Intel releases, use the complete workflow:
+
+```bash
+./scripts/build_macos_variants.sh
+```
+
+The script checksum-verifies a relocatable x86_64 Python 3.12 runtime, resolves a
+separate Intel wheelhouse, runs clean offline imports for each architecture, and
+then signs, notarizes and staples each app and DMG independently.
+
+The release script requires Developer ID signing, notarizes and staples the app,
+then builds, signs, notarizes and staples the DMG. Both artifacts must pass
+Gatekeeper assessment before distribution. A timeout is not rejection: inspect
+submission status with `xcrun notarytool info ID --keychain-profile GZWhisper` and
+retrieve errors with `xcrun notarytool log ID --keychain-profile GZWhisper`.
+
+`sign_app.py` signs native binaries inside bundled wheels, regenerates their
+RECORD hashes, signs embedded Mach-O files and nested bundles inside-out, and
+finally seals the app. Only build copies of wheels are modified. Python permits
+loading third-party native libraries from its external venv; the main app does
+not receive that exception. Keep bytecode writes disabled inside the bundle.
+
+DMGs contain the app and Applications shortcut. ZIP archives contain the app and
+install instructions. Neither package includes a Gatekeeper bypass tool. Existing
+public release downloads are not replaced by building a new local release.
+
+## v1.5.3 release — 2026-09-23
+
+- Source version: 1.5.3, build 270827, deployment target macOS 14.0.
+- The published 1.5.3 download links select separate Apple Silicon and Intel
+  DMGs; a notarized Apple Silicon ZIP and generic DMG are also available.
+- Built a signed arm64 `build/GZWhisper.app`. Apple accepted app submission
+  `e9f36619-47a3-4686-beef-71093726ef42` and DMG submission
+  `c08e4ebf-4f62-45da-a42b-44fe15ef89fc`. Both tickets were stapled and
+  validated. Gatekeeper accepts the app, DMG, extracted ZIP app, and mounted DMG
+  app as `Notarized Developer ID`; strict code-signature checks passed.
+- The notarytool profile `GZWhisper` is present and usable. The earlier
+  unavailable-profile error was transient.
+- ZIP was rebuilt after stapling. ZIP SHA-256:
+  `3246dabaeb493f06117bd747f299afe43b74d411341c34fd72fce91897d89829`.
+- DMG SHA-256: `fc1398b306556f9446f77f7f444e189085bf5595e81c7b537099177bf15c4fab`.
+- Release packaging checks stable bundle ID `com.gzakharov.gzwhisper`, Team ID
+  `BN3D9H4C7J`, Developer ID signing and the designated requirement against the
+  previously installed 1.5.2 app. The requirements matched. After installing
+  1.5.3 in `/Applications`, system + microphone recording started without a new
+  macOS permission prompt. The test recording was removed through the app, and
+  the existing 210 history entries remained available.
+- Separate architecture builds were also completed. Apple Silicon app/DMG
+  submissions `30eaafa1-cd19-4b80-a0f3-c809f352d76f` /
+  `d875feab-fa7f-4dba-b0ea-bfe7fd751f88` were Accepted. Intel app/DMG
+  submissions `565b966a-b976-420a-b435-b9cfae0ed293` /
+  `c85ed5fa-e0eb-4bc5-a6d5-96fd76e70215` were Accepted. All four tickets
+  were stapled. Each mounted DMG app passed strict signature, stapler, and
+  Gatekeeper checks; its executable and Python runtime had the intended single
+  architecture. Both wheelhouses passed clean offline installation/imports.
+- Apple Silicon architecture-specific DMG SHA-256:
+  `93e69404a862c5052f3d053f5e4d84b847ca50fffb0d6cbdc0c5ce4e90e14f2a`.
+- Intel architecture-specific DMG SHA-256:
+  `9944bc9fb13aab3c6a0cfbaf5f91a1102fb1340200cc31472e2be0c687599cab`.
+- The main window was inspected after installing 1.5.3. Swift typechecking and
+  isolated history behavior tests passed. Physical Intel hardware validation
+  remains recommended.
+- `build/` is generated and ignored by Git. The four archives above are the
+  v1.5.3 GitHub release assets; the local 1.5.2 backup is not uploaded.
+
+## Verified local release — 2026-09-09
+
+- Version: 1.5.2, build 270826, Apple Silicon, macOS 12+.
+- App submission: `e994ad23-63cf-432a-a004-700a90a5c6b5` — Accepted, no issues.
+- DMG submission: `8314e95f-b1d0-4ba4-9278-c8203cb05cfc` — Accepted.
+- Both tickets stapled and validated; both Gatekeeper assessments accepted with
+  `source=Notarized Developer ID`. App verified again inside mounted DMG.
+- Eight native wheel archives passed RECORD hash validation; clean offline install
+  and imports of faster_whisper, huggingface_hub, onnxruntime and sympy passed.
+- DMG SHA-256: `2711e1874ca35c24c36c5d97acc21e723a4642058e42a15e84e6039c62fc97f7`.
+- Artifact: `build/GZWhisper-Installer-1.5.2.dmg`. Not uploaded to GitHub releases.
+
+## Verified dual-architecture release — 2026-09-11
+
+- Version: 1.5.2, build 270826, deployment target macOS 14.0 (covers macOS 14 and 15).
+- Apple Silicon app submission: `e045493a-3f5a-4270-bbc4-0b1f6111c2c1` — Accepted.
+- Apple Silicon DMG submission: `0eb75fb3-c7ca-4901-a3a8-ea772f0a1889` — Accepted.
+- Intel app submission: `022f576c-037a-4aba-933f-a5f8ad8e2a4e` — Accepted.
+- Intel DMG submission: `fb1dd7b1-b61e-4c32-97b5-57c4521ebf33` — Accepted.
+- Both wheelhouses passed clean offline installation and imports. The Intel app
+  executable and embedded Python ran as x86_64 through Rosetta without an early
+  startup failure. A physical Intel Mac remains the recommended final hardware test.
+- Mounted copies from both DMGs passed strict signature and Gatekeeper checks with
+  `source=Notarized Developer ID`; both tickets were stapled and validated.
+- Apple Silicon DMG SHA-256: `6b69f6f49e80250e5b1a1d2c69210e92e30a738d4dd0a96c1b060f1ed1ccd9db`.
+- Intel DMG SHA-256: `bc876e4a14bd62f3fc842c441d6127103603e7fc370d2fc3c1b7503a73575ac0`.
+- Artifacts: `build/releases/Apple-Silicon/GZWhisper-Installer-1.5.2-Apple-Silicon.dmg`
+  and `build/releases/Intel/GZWhisper-Installer-1.5.2-Intel.dmg`. Not uploaded.

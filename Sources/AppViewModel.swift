@@ -31,6 +31,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     var transcriptPath: String?
     var detectedLanguage: String?
     var modelID: String?
+    var modelPath: String?
+    var segments: [TranscriptionSegment]?
     var recordingMode: RecordingInputMode?
     var state: TranscriptJobState
     var queueOrder: Int?
@@ -50,6 +52,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         transcriptPath: String? = nil,
         detectedLanguage: String? = nil,
         modelID: String? = nil,
+        modelPath: String? = nil,
+        segments: [TranscriptionSegment]? = nil,
         recordingMode: RecordingInputMode? = nil,
         state: TranscriptJobState,
         queueOrder: Int? = nil,
@@ -68,6 +72,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         self.transcriptPath = transcriptPath
         self.detectedLanguage = detectedLanguage
         self.modelID = modelID
+        self.modelPath = modelPath
+        self.segments = segments
         self.recordingMode = recordingMode
         self.state = state
         self.queueOrder = queueOrder
@@ -88,6 +94,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         case transcriptPath
         case detectedLanguage
         case modelID
+        case modelPath
+        case segments
         case recordingMode
         case state
         case queueOrder
@@ -193,6 +201,12 @@ final class AppViewModel: ObservableObject {
         let item: TranscriptHistoryItem
         let originalIndex: Int
         let wasSelected: Bool
+        let expiresAt: Date
+    }
+
+    private struct PendingDeletionJournal: Codable {
+        let item: TranscriptHistoryItem
+        let expiresAt: Date
     }
 
     @Published var modelStatus = L10n.t("status.modelNotLoaded")
@@ -202,10 +216,14 @@ final class AppViewModel: ObservableObject {
 
     @Published var statusMessage = L10n.t("status.ready")
     @Published var transcriptText = ""
+    @Published private(set) var hasUnsavedTranscriptEdits = false
+    @Published private(set) var historyRecoveryMessage: String?
     @Published var selectedLanguage = "auto"
     @Published var detectedLanguage = "-"
 
     @Published var isDownloadingModel = false
+    @Published private(set) var isManagingModel = false
+    @Published private(set) var downloadingModelID: String?
     @Published var isTranscribing = false
     @Published var isQueuePaused = false
     @Published var shouldPauseQueueAfterCurrent = false
@@ -215,8 +233,10 @@ final class AppViewModel: ObservableObject {
     @Published var hasKnownDownloadTotal = false
     @Published var runtimeIssueMessage: String?
     @Published private(set) var hasConnectedModel = false
+    @Published private(set) var installedModels: [LocalModelReference] = []
 
     @Published var historyItems: [TranscriptHistoryItem] = []
+    @Published private(set) var historySearchRevision = 0
     @Published var selectedHistoryItemID: UUID?
 
     @Published var activeProgressFraction: Double?
@@ -224,6 +244,7 @@ final class AppViewModel: ObservableObject {
     @Published var currentTranscribingFileName: String = ""
     @Published var selectedRecordingMode: RecordingInputMode = .systemAndMicrophone
     @Published var isRecording = false
+    @Published private(set) var isStartingRecording = false
     @Published var isRecordingPaused = false
     @Published var isStoppingRecording = false
     @Published var recordingElapsedText = "00:00:00"
@@ -238,6 +259,7 @@ final class AppViewModel: ObservableObject {
     let appVersionLabel: String
     let appBuildLabel: String
     let recordingModeOptions = RecordingInputMode.allCases
+    let modelCatalog = WhisperEngine.modelCatalog
 
     private let engine = WhisperEngine.shared
     private let audioCaptureService = AudioCaptureService()
@@ -253,7 +275,7 @@ final class AppViewModel: ObservableObject {
 
     private let historyDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
+        formatter.dateStyle = .short
         formatter.timeStyle = .short
         return formatter
     }()
@@ -262,6 +284,7 @@ final class AppViewModel: ObservableObject {
     private var lastModelID: String?
     private var currentModelReference: LocalModelReference?
     private var currentEditorSourcePath: String?
+    private var editorHistoryItemID: UUID?
     private var recordingStartedAt: Date?
     private var recordingPausedAt: Date?
     private var recordingPausedTotalSeconds: Double = 0
@@ -272,16 +295,20 @@ final class AppViewModel: ObservableObject {
     private var activeTranscriptionRunHandle: TranscriptionRunHandle?
     private var isQueueCancellationRequested = false
     private var isSkippingCurrentQueueItem = false
+    private var currentQueueFailureCount = 0
     private var activeQueueFilterIDs: Set<UUID>?
     private var pendingHistoryDeletion: PendingHistoryDeletion?
     private var pendingHistoryDeletionTask: Task<Void, Never>?
+    private var transcriptSaveTask: Task<Void, Never>?
+    private var historyWritesBlocked = false
+    private var hasInitialized = false
     private let historyPersistenceQueue = DispatchQueue(label: "com.gzwhisper.history.persistence", qos: .utility)
     private static let showHUDOnRecordingStartKey = "recording.showHUDOnStart"
     private static let largeMediaSizeThresholdBytes: Int64 = 2 * 1024 * 1024 * 1024
     private static let longMediaDurationThresholdSeconds: Double = 60 * 60
 
     var canStartQueue: Bool {
-        !isDownloadingModel && !isTranscribing && !isRecording && !isStoppingRecording && hasConnectedModel && hasQueuedItems && runtimeIssueMessage == nil
+        !historyWritesBlocked && !isModelManagementBusy && !isTranscribing && !isRecording && !isStartingRecording && !isStoppingRecording && hasConnectedModel && hasQueuedItems && runtimeIssueMessage == nil
     }
 
     var canCancelQueue: Bool {
@@ -294,9 +321,11 @@ final class AppViewModel: ObservableObject {
 
     var canStartSelectedQueue: Bool {
         guard
-            !isDownloadingModel,
+            !isModelManagementBusy,
+            !historyWritesBlocked,
             !isTranscribing,
             !isRecording,
+            !isStartingRecording,
             !isStoppingRecording,
             hasConnectedModel,
             runtimeIssueMessage == nil,
@@ -317,7 +346,28 @@ final class AppViewModel: ObservableObject {
     }
 
     var canDeleteModel: Bool {
-        hasConnectedModel && !isDownloadingModel && !isTranscribing && !isRecording
+        hasConnectedModel && !isModelManagementBusy && !isTranscribing && !isRecording && !isStartingRecording
+    }
+
+    var isModelManagementBusy: Bool {
+        isDownloadingModel || isManagingModel
+    }
+
+    var activeModelPath: String? {
+        currentModelReference?.modelPath
+    }
+
+    var canEditSelectedTranscript: Bool {
+        guard let selectedHistoryItem else { return false }
+        return selectedHistoryItem.state == .completed
+            && selectedHistoryItem.transcriptPath != nil
+            && editorHistoryItemID == selectedHistoryItem.id
+    }
+
+    var macProcessorTitle: String {
+        let architecture = MacProcessorFamily.current == .appleSilicon ? "Apple Silicon" : "Intel"
+        let ramGB = Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824)
+        return "\(architecture) · \(ramGB) GB RAM"
     }
 
     var shouldShowDownloadProgress: Bool {
@@ -360,7 +410,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var canStartRecording: Bool {
-        !isRecording && !isStoppingRecording && !isDownloadingModel
+        !historyWritesBlocked && !isRecording && !isStartingRecording && !isStoppingRecording && !isModelManagementBusy
     }
 
     var canUndoHistoryDeletion: Bool {
@@ -380,14 +430,15 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.2"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.3"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "270826"
+        ) ?? "270827"
     }
 
     deinit {
         pendingHistoryDeletionTask?.cancel()
+        transcriptSaveTask?.cancel()
         historyPersistenceQueue.sync {}
         recordingTimer?.invalidate()
         let notificationCenter = NSWorkspace.shared.notificationCenter
@@ -398,6 +449,8 @@ final class AppViewModel: ObservableObject {
     }
 
     func initialize() {
+        guard !hasInitialized else { return }
+        hasInitialized = true
         shouldShowHUDOnRecordingStart = UserDefaults.standard.object(forKey: Self.showHUDOnRecordingStartKey) as? Bool ?? true
         audioCaptureService.onUnexpectedInterruption = { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -407,6 +460,7 @@ final class AppViewModel: ObservableObject {
         refreshModelStatus()
         refreshRuntimeIssue()
         loadHistoryFromDisk()
+        recoverPendingHistoryDeletions()
         setupWorkspaceObservers()
         activeRecordingSession = recordingSessionStore.loadActiveSession()
         let recovered = recoverInterruptedRecordingIfNeeded()
@@ -417,7 +471,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func chooseFiles() {
-        guard !isRecording else {
+        guard !historyWritesBlocked else {
+            statusMessage = historyRecoveryMessage ?? L10n.t("status.failed")
+            return
+        }
+        guard !isRecording && !isStartingRecording else {
             statusMessage = L10n.t("record.status.stopFirst")
             return
         }
@@ -435,7 +493,11 @@ final class AppViewModel: ObservableObject {
     }
 
     func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
-        if isRecording {
+        guard !historyWritesBlocked else {
+            statusMessage = historyRecoveryMessage ?? L10n.t("status.failed")
+            return false
+        }
+        if isRecording || isStartingRecording {
             statusMessage = L10n.t("record.status.stopFirst")
             return false
         }
@@ -485,7 +547,14 @@ final class AppViewModel: ObservableObject {
     }
 
     func downloadModelWithFolderPrompt() {
-        guard !isDownloadingModel else { return }
+        guard let recommended = modelCatalog.first(where: { $0.currentRecommendation == .best })
+            ?? modelCatalog.first(where: { $0.currentRecommendation == .recommended })
+            ?? modelCatalog.first else { return }
+        downloadModelWithFolderPrompt(recommended)
+    }
+
+    func downloadModelWithFolderPrompt(_ option: WhisperModelOption) {
+        guard !isModelManagementBusy && !isTranscribing && !isRecording && !isStartingRecording && !isStoppingRecording else { return }
         guard ensureRuntimeReady() else { return }
 
         let defaultDirectory = engine.defaultDownloadDirectory()
@@ -505,11 +574,21 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        startModelDownload(to: destinationURL)
+        if !hasEnoughDiskSpace(for: option, at: destinationURL) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = L10n.t("alert.lowDiskTitle")
+            alert.informativeText = L10n.f("alert.lowDiskInfo", option.approximateDownloadGB * 1.2)
+            alert.addButton(withTitle: L10n.t("button.continue"))
+            alert.addButton(withTitle: L10n.t("button.cancel"))
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        startModelDownload(option: option, to: destinationURL)
     }
 
     func connectExistingLocalModel() {
-        guard !isDownloadingModel else { return }
+        guard !isModelManagementBusy && !isTranscribing && !isRecording && !isStartingRecording && !isStoppingRecording else { return }
         guard ensureRuntimeReady() else { return }
 
         let panel = NSOpenPanel()
@@ -528,6 +607,7 @@ final class AppViewModel: ObservableObject {
 
         let engine = self.engine
 
+        isManagingModel = true
         statusMessage = L10n.t("status.validatingModel")
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -539,11 +619,14 @@ final class AppViewModel: ObservableObject {
                 }
 
                 DispatchQueue.main.async {
+                    self.isManagingModel = false
                     self.refreshModelStatus()
                     self.statusMessage = L10n.t("status.localModelConnected")
                 }
             } catch {
                 DispatchQueue.main.async {
+                    self.isManagingModel = false
+                    self.refreshModelStatus()
                     self.statusMessage = error.localizedDescription
                 }
             }
@@ -560,6 +643,15 @@ final class AppViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    func revealModelInFinder(_ reference: LocalModelReference) {
+        let url = URL(fileURLWithPath: reference.modelPath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            statusMessage = L10n.t("status.modelFolderNotFound")
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     func deleteModel() {
         guard canDeleteModel, let reference = currentModelReference else { return }
 
@@ -567,7 +659,7 @@ final class AppViewModel: ObservableObject {
         alert.alertStyle = .warning
         alert.messageText = L10n.t("alert.deleteModelTitle")
 
-        if reference.sourceType == .downloaded {
+        if engine.deletionRemovesFiles(for: reference) {
             alert.informativeText = L10n.t("alert.deleteDownloadedInfo")
         } else {
             alert.informativeText = L10n.t("alert.deleteLinkedInfo")
@@ -581,6 +673,7 @@ final class AppViewModel: ObservableObject {
         }
 
         let engine = self.engine
+        isManagingModel = true
         statusMessage = L10n.t("status.deletingModel")
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -588,6 +681,7 @@ final class AppViewModel: ObservableObject {
                 let outcome = try engine.deleteCurrentModel()
 
                 DispatchQueue.main.async {
+                    self.isManagingModel = false
                     self.refreshModelStatus()
                     switch outcome {
                     case let .deletedFiles(path):
@@ -598,6 +692,62 @@ final class AppViewModel: ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
+                    self.isManagingModel = false
+                    self.refreshModelStatus()
+                    self.statusMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func installedReference(for option: WhisperModelOption) -> LocalModelReference? {
+        installedModels.first { option.matches(modelID: $0.modelID) }
+    }
+
+    func selectModel(_ reference: LocalModelReference) {
+        guard !isModelManagementBusy && !isTranscribing && !isRecording && !isStartingRecording && !isStoppingRecording else { return }
+        isManagingModel = true
+        defer { isManagingModel = false }
+        do {
+            try engine.selectModel(reference)
+            refreshModelStatus()
+            statusMessage = L10n.f("status.modelSelected", reference.modelID)
+        } catch {
+            refreshModelStatus()
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func deleteModel(_ reference: LocalModelReference) {
+        guard !isModelManagementBusy && !isTranscribing && !isRecording && !isStartingRecording && !isStoppingRecording else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L10n.t("alert.deleteModelTitle")
+        alert.informativeText = engine.deletionRemovesFiles(for: reference)
+            ? L10n.t("alert.deleteDownloadedInfo")
+            : L10n.t("alert.deleteLinkedInfo")
+        alert.addButton(withTitle: L10n.t("button.delete"))
+        alert.addButton(withTitle: L10n.t("button.cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        isManagingModel = true
+        statusMessage = L10n.t("status.deletingModel")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let outcome = try self.engine.deleteModel(reference)
+                DispatchQueue.main.async {
+                    self.isManagingModel = false
+                    self.refreshModelStatus()
+                    switch outcome {
+                    case let .deletedFiles(path): self.statusMessage = L10n.f("status.modelDeleted", path)
+                    case let .unlinked(path): self.statusMessage = L10n.f("status.modelUnlinked", path)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isManagingModel = false
+                    self.refreshModelStatus()
                     self.statusMessage = error.localizedDescription
                 }
             }
@@ -655,6 +805,7 @@ final class AppViewModel: ObservableObject {
                 : nil
         )
 
+        isStartingRecording = true
         statusMessage = L10n.t("record.status.starting")
 
         Task {
@@ -669,6 +820,7 @@ final class AppViewModel: ObservableObject {
                 )
                 self.activeRecordingSession = activeSession
 
+                isStartingRecording = false
                 recordingStartedAt = startedAt
                 recordingPausedAt = nil
                 recordingPausedTotalSeconds = 0
@@ -680,6 +832,7 @@ final class AppViewModel: ObservableObject {
                 startRecordingTimer()
                 statusMessage = L10n.t("record.status.recording")
             } catch {
+                isStartingRecording = false
                 isRecording = false
                 isRecordingPaused = false
                 isStoppingRecording = false
@@ -817,6 +970,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func transcribeHistoryItemsNow(_ ids: Set<UUID>) {
+        guard !historyWritesBlocked else { return }
         guard !ids.isEmpty else {
             statusMessage = L10n.t("status.pickFileFirst")
             return
@@ -854,7 +1008,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        selectedHistoryItemID = runnableIDs.first
+        if let firstID = runnableIDs.first { selectPendingItem(firstID) }
         normalizeQueueOrders()
         sortHistoryByDateDesc()
         persistHistoryToDisk()
@@ -990,7 +1144,7 @@ final class AppViewModel: ObservableObject {
 
     private func startQueue(filterIDs: Set<UUID>?) {
         guard ensureRuntimeReady() else { return }
-        guard !isRecording else {
+        guard !isRecording && !isStartingRecording else {
             statusMessage = L10n.t("record.status.stopFirst")
             return
         }
@@ -1009,6 +1163,7 @@ final class AppViewModel: ObservableObject {
 
         isQueueCancellationRequested = false
         isSkippingCurrentQueueItem = false
+        currentQueueFailureCount = 0
         isQueuePaused = false
         shouldPauseQueueAfterCurrent = false
         activeQueueFilterIDs = filterIDs
@@ -1052,7 +1207,7 @@ final class AppViewModel: ObservableObject {
         historyItems[index].errorMessage = nil
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
-        selectedHistoryItemID = id
+        selectPendingItem(id)
         statusMessage = L10n.f("status.fileSelected", historyItems[index].displayName)
         sortHistoryByDateDesc()
         persistHistoryToDisk()
@@ -1084,18 +1239,18 @@ final class AppViewModel: ObservableObject {
         guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
             return
         }
+        guard savePendingTranscriptEdits() else { return }
 
         selectedHistoryItemID = id
         let item = historyItems[index]
 
         guard item.state == .completed else {
+            clearEditor()
             return
         }
 
         guard let transcriptPath = item.transcriptPath else {
-            transcriptText = ""
-            segments = []
-            currentEditorSourcePath = item.sourceFilePath
+            clearEditor()
             statusMessage = L10n.t("status.noTranscriptFile")
             return
         }
@@ -1104,14 +1259,70 @@ final class AppViewModel: ObservableObject {
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             transcriptText = text
-            segments = []
+            segments = item.segments ?? []
             lastModelID = item.modelID
             detectedLanguage = item.detectedLanguage ?? L10n.t("status.languageNotDetected")
             currentEditorSourcePath = item.sourceFilePath
+            editorHistoryItemID = id
+            hasUnsavedTranscriptEdits = false
             statusMessage = L10n.f("status.historyLoaded", item.displayName)
         } catch {
+            clearEditor()
             statusMessage = L10n.f("status.fileMissing", item.displayName)
         }
+    }
+
+    func updateTranscriptText(_ text: String) {
+        guard editorHistoryItemID != nil, text != transcriptText else { return }
+        transcriptText = text
+        hasUnsavedTranscriptEdits = true
+        transcriptSaveTask?.cancel()
+        transcriptSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            _ = self?.savePendingTranscriptEdits()
+        }
+    }
+
+    @discardableResult
+    func savePendingTranscriptEdits() -> Bool {
+        transcriptSaveTask?.cancel()
+        transcriptSaveTask = nil
+        guard hasUnsavedTranscriptEdits else { return true }
+        guard let editorHistoryItemID,
+              let index = historyItems.firstIndex(where: { $0.id == editorHistoryItemID }),
+              let path = historyItems[index].transcriptPath else {
+            statusMessage = L10n.t("status.transcriptSaveFailed")
+            return false
+        }
+
+        do {
+            try transcriptText.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+            segments = []
+            historyItems[index].segments = []
+            guard persistHistoryToDisk(synchronously: true) else { return false }
+            hasUnsavedTranscriptEdits = false
+            return true
+        } catch {
+            statusMessage = L10n.f("status.txtSaveError", error.localizedDescription)
+            return false
+        }
+    }
+
+    private func clearEditor() {
+        transcriptText = ""
+        segments = []
+        lastModelID = nil
+        detectedLanguage = "-"
+        currentEditorSourcePath = nil
+        editorHistoryItemID = nil
+        hasUnsavedTranscriptEdits = false
+    }
+
+    private func selectPendingItem(_ id: UUID) {
+        guard savePendingTranscriptEdits() else { return }
+        selectedHistoryItemID = id
+        clearEditor()
     }
 
     func revealTranscriptInFinder(_ id: UUID) {
@@ -1133,6 +1344,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func deleteHistoryItem(_ id: UUID) {
+        guard !historyWritesBlocked else { return }
         guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -1142,14 +1354,23 @@ final class AppViewModel: ObservableObject {
             statusMessage = L10n.t("status.historyDeleteBlocked")
             return
         }
+        guard savePendingTranscriptEdits() else { return }
 
         finalizePendingHistoryDeletion()
 
         let wasSelected = selectedHistoryItemID == id
+        let expiresAt = Date().addingTimeInterval(15)
+        do {
+            try savePendingDeletionJournal(PendingDeletionJournal(item: item, expiresAt: expiresAt))
+        } catch {
+            statusMessage = L10n.f("status.historyDeleteFailed", error.localizedDescription)
+            return
+        }
         pendingHistoryDeletion = PendingHistoryDeletion(
             item: item,
             originalIndex: index,
-            wasSelected: wasSelected
+            wasSelected: wasSelected,
+            expiresAt: expiresAt
         )
         pendingHistoryDeletionName = item.displayName
 
@@ -1157,9 +1378,7 @@ final class AppViewModel: ObservableObject {
 
         if wasSelected {
             selectedHistoryItemID = nil
-            transcriptText = ""
-            segments = []
-            currentEditorSourcePath = nil
+            clearEditor()
         }
 
         persistHistoryToDisk()
@@ -1170,25 +1389,41 @@ final class AppViewModel: ObservableObject {
         guard let pending = pendingHistoryDeletion else {
             return
         }
-
         pendingHistoryDeletionTask?.cancel()
         pendingHistoryDeletionTask = nil
-        pendingHistoryDeletion = nil
-        pendingHistoryDeletionName = nil
 
         let insertionIndex = min(max(pending.originalIndex, 0), historyItems.count)
         historyItems.insert(pending.item, at: insertionIndex)
         sortHistoryByDateDesc()
+        guard persistHistoryToDisk(synchronously: true) else {
+            historyItems.removeAll { $0.id == pending.item.id }
+            schedulePendingHistoryDeletionFinalization(for: pending.item.id)
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: pendingDeletionJournalURL(for: pending.item.id))
+        } catch {
+            historyItems.removeAll { $0.id == pending.item.id }
+            persistHistoryToDisk()
+            pendingHistoryDeletion = pending
+            schedulePendingHistoryDeletionFinalization(for: pending.item.id)
+            statusMessage = L10n.f("status.historyRestoreFailed", error.localizedDescription)
+            return
+        }
+
+        pendingHistoryDeletion = nil
+        pendingHistoryDeletionName = nil
 
         if pending.wasSelected {
             openHistoryItem(pending.item.id)
         }
 
         statusMessage = L10n.f("status.historyRestored", pending.item.displayName)
-        persistHistoryToDisk()
     }
 
     func renameHistoryItem(_ id: UUID, to proposedName: String) {
+        guard !historyWritesBlocked else { return }
         guard let index = historyItems.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -1215,6 +1450,10 @@ final class AppViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([engine.runtimeSupportDirectoryURL()])
     }
 
+    func revealHistoryFolderInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([transcriptsDirectoryURL])
+    }
+
     func copyAllText() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -1223,6 +1462,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func saveAsText() {
+        guard savePendingTranscriptEdits() else { return }
         guard !transcriptText.isEmpty else {
             statusMessage = L10n.t("status.noTextToSave")
             return
@@ -1244,6 +1484,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func saveAsJSON() {
+        guard savePendingTranscriptEdits() else { return }
         guard !transcriptText.isEmpty else {
             statusMessage = L10n.t("status.noTextToSave")
             return
@@ -1274,8 +1515,10 @@ final class AppViewModel: ObservableObject {
                 payload["model_id"] = lastModelID
             }
 
-            if let currentModelReference {
-                payload["model_path"] = currentModelReference.modelPath
+            if let editorHistoryItemID,
+               let item = historyItems.first(where: { $0.id == editorHistoryItemID }),
+               let modelPath = item.modelPath {
+                payload["model_path"] = modelPath
             }
 
             do {
@@ -1290,6 +1533,7 @@ final class AppViewModel: ObservableObject {
 
     @discardableResult
     func exportHistoryItems(_ ids: Set<UUID>, format: HistoryExportFormat) -> Bool {
+        guard savePendingTranscriptEdits() else { return false }
         let selectedItems = historyItems.filter { ids.contains($0.id) && $0.state == .completed && $0.transcriptPath != nil }
         guard !selectedItems.isEmpty else {
             statusMessage = L10n.t("status.bulkExportNothingSelected")
@@ -1335,7 +1579,11 @@ final class AppViewModel: ObservableObject {
                     var payload: [String: Any] = [
                         "generated_at": ISO8601DateFormatter().string(from: Date()),
                         "text": transcript,
-                        "segments": [],
+                        "segments": (item.segments ?? []).map { [
+                            "start": $0.start,
+                            "end": $0.end,
+                            "text": $0.text,
+                        ] },
                         "source_file": item.sourceFilePath,
                     ]
                     if let detectedLanguage = item.detectedLanguage {
@@ -1343,6 +1591,9 @@ final class AppViewModel: ObservableObject {
                     }
                     if let modelID = item.modelID {
                         payload["model_id"] = modelID
+                    }
+                    if let modelPath = item.modelPath {
+                        payload["model_path"] = modelPath
                     }
                     let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
                     try data.write(to: fileURL, options: .atomic)
@@ -1574,6 +1825,7 @@ final class AppViewModel: ObservableObject {
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             historyItems[index].state = .failed
             historyItems[index].errorMessage = L10n.f("status.fileMissing", historyItems[index].displayName)
+            currentQueueFailureCount += 1
             persistHistoryToDisk()
             processNextQueuedItem()
             return
@@ -1583,7 +1835,7 @@ final class AppViewModel: ObservableObject {
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
         historyItems[index].errorMessage = nil
-        selectedHistoryItemID = itemID
+        selectPendingItem(itemID)
 
         currentTranscribingFileName = historyItems[index].displayName
         statusMessage = L10n.f("status.transcribingFile", historyItems[index].displayName)
@@ -1703,7 +1955,12 @@ final class AppViewModel: ObservableObject {
         currentTranscribingFileName = ""
         activeProgressFraction = nil
         activeETA = ""
-        statusMessage = L10n.t("status.queueCompleted")
+        if currentQueueFailureCount > 0 {
+            statusMessage = L10n.f("status.queueCompletedWithFailures", currentQueueFailureCount)
+        } else {
+            statusMessage = L10n.t("status.queueCompleted")
+        }
+        currentQueueFailureCount = 0
     }
 
     private func finishQueueCancellation() {
@@ -1755,16 +2012,25 @@ final class AppViewModel: ObservableObject {
         historyItems[index].progressFraction = 1.0
         historyItems[index].etaSeconds = nil
         historyItems[index].isRuntimeOnly = false
-        transcriptText = result.text
-        segments = result.segments
-        lastModelID = result.modelID
-        detectedLanguage = result.detectedLanguage ?? L10n.t("status.languageNotDetected")
-        currentEditorSourcePath = historyItems[index].sourceFilePath
-        selectedHistoryItemID = itemID
+        historyItems[index].segments = result.segments
+        historyItems[index].modelPath = currentModelReference?.modelPath
+        let previousEditsSaved = savePendingTranscriptEdits()
+        if previousEditsSaved {
+            transcriptText = result.text
+            segments = result.segments
+            lastModelID = result.modelID
+            detectedLanguage = result.detectedLanguage ?? L10n.t("status.languageNotDetected")
+            currentEditorSourcePath = historyItems[index].sourceFilePath
+            editorHistoryItemID = itemID
+            selectedHistoryItemID = itemID
+            hasUnsavedTranscriptEdits = false
+        }
 
         activeProgressFraction = nil
         activeETA = ""
-        statusMessage = L10n.f("status.transcriptionCompletedFile", historyItems[index].displayName)
+        if previousEditsSaved {
+            statusMessage = L10n.f("status.transcriptionCompletedFile", historyItems[index].displayName)
+        }
 
         sortHistoryByDateDesc()
         persistHistoryToDisk()
@@ -1777,14 +2043,17 @@ final class AppViewModel: ObservableObject {
 
         historyItems[index].state = .failed
         historyItems[index].queueOrder = nil
-        historyItems[index].errorMessage = error.localizedDescription
+        let rawMessage = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let errorMessage = rawMessage.isEmpty ? L10n.t("engine.unknownTranscriptionFailure") : rawMessage
+        historyItems[index].errorMessage = errorMessage
+        currentQueueFailureCount += 1
         historyItems[index].progressFraction = nil
         historyItems[index].etaSeconds = nil
         historyItems[index].isRuntimeOnly = false
 
         activeProgressFraction = nil
         activeETA = ""
-        statusMessage = error.localizedDescription
+        statusMessage = errorMessage
 
         sortHistoryByDateDesc()
         persistHistoryToDisk()
@@ -1849,6 +2118,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func addMediaFiles(_ urls: [URL]) {
+        guard !historyWritesBlocked, savePendingTranscriptEdits() else { return }
         let normalized = urls
             .map { $0.standardizedFileURL }
             .filter { $0.isFileURL }
@@ -1879,7 +2149,7 @@ final class AppViewModel: ObservableObject {
                 isRuntimeOnly: true
             )
             historyItems.insert(item, at: 0)
-            selectedHistoryItemID = item.id
+            selectPendingItem(item.id)
         }
 
         if largeMediaCount > 0 {
@@ -1889,6 +2159,7 @@ final class AppViewModel: ObservableObject {
         }
         normalizeQueueOrders()
         sortHistoryByDateDesc()
+        persistHistoryToDisk()
     }
 
     private static func isSupportedMediaFile(_ url: URL) -> Bool {
@@ -1949,6 +2220,10 @@ final class AppViewModel: ObservableObject {
 
     private var historyFileURL: URL {
         transcriptsDirectoryURL.appendingPathComponent("history.json")
+    }
+
+    private var pendingDeletionsDirectoryURL: URL {
+        transcriptsDirectoryURL.appendingPathComponent("Pending Deletions", isDirectory: true)
     }
 
     nonisolated private static func makeTranscriptFileURL(for sourceURL: URL, createdAt: Date, in directoryURL: URL) -> URL {
@@ -2040,21 +2315,46 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadHistoryFromDisk() {
-        guard let data = try? Data(contentsOf: historyFileURL) else {
+        guard FileManager.default.fileExists(atPath: historyFileURL.path) else {
             historyItems = []
             return
         }
 
-        guard let decoded = try? JSONDecoder().decode([TranscriptHistoryItem].self, from: data) else {
+        let data: Data
+        do {
+            data = try Data(contentsOf: historyFileURL)
+        } catch {
+            historyWritesBlocked = true
+            historyRecoveryMessage = L10n.f("status.historyReadFailed", error.localizedDescription)
             historyItems = []
             return
+        }
+
+        let decoded: [TranscriptHistoryItem]
+        if let loaded = try? JSONDecoder().decode([TranscriptHistoryItem].self, from: data) {
+            decoded = loaded
+        } else {
+            let backupURL = transcriptsDirectoryURL.appendingPathComponent("history-corrupt-\(UUID().uuidString).json")
+            do {
+                try data.write(to: backupURL, options: .atomic)
+                let rawItems = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+                decoded = rawItems.compactMap { raw in
+                    guard let itemData = try? JSONSerialization.data(withJSONObject: raw) else { return nil }
+                    return try? JSONDecoder().decode(TranscriptHistoryItem.self, from: itemData)
+                }
+                historyRecoveryMessage = L10n.f("status.historyRecovered", decoded.count, backupURL.lastPathComponent)
+            } catch {
+                historyWritesBlocked = true
+                historyRecoveryMessage = L10n.f("status.historyReadFailed", error.localizedDescription)
+                historyItems = []
+                return
+            }
         }
 
         historyItems = decoded.map { item in
             var copy = item
             copy.progressFraction = nil
             copy.etaSeconds = nil
-            copy.isRuntimeOnly = false
             if copy.state == .processing {
                 if copy.audioPath != nil {
                     copy.state = .queued
@@ -2064,9 +2364,20 @@ final class AppViewModel: ObservableObject {
                     copy.errorMessage = L10n.t("status.failed")
                 }
             }
+            if copy.state == .failed,
+               copy.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                copy.errorMessage = L10n.t("engine.unknownTranscriptionFailure")
+            }
+            if copy.state == .queued && !FileManager.default.fileExists(atPath: copy.sourceFilePath) {
+                copy.state = .failed
+                copy.errorMessage = L10n.f("status.fileMissing", copy.displayName)
+            }
             if copy.state != .queued {
                 copy.queueOrder = nil
             }
+            copy.isRuntimeOnly = copy.state == .queued
+                && copy.audioPath == nil
+                && copy.transcriptPath == nil
             return copy
         }
 
@@ -2074,10 +2385,13 @@ final class AppViewModel: ObservableObject {
         sortHistoryByDateDesc()
     }
 
-    private func persistHistoryToDisk() {
+    @discardableResult
+    private func persistHistoryToDisk(synchronously: Bool = false) -> Bool {
+        guard !historyWritesBlocked else { return false }
+        historySearchRevision &+= 1
         let persisted = historyItems.compactMap { item -> TranscriptHistoryItem? in
             let hasArtifact = item.transcriptPath != nil || item.audioPath != nil
-            if !hasArtifact && item.state != .failed {
+            if !hasArtifact && item.state == .ready {
                 return nil
             }
 
@@ -2102,17 +2416,38 @@ final class AppViewModel: ObservableObject {
         let directoryURL = transcriptsDirectoryURL
         let fileURL = historyFileURL
 
-        historyPersistenceQueue.async {
+        if synchronously {
             do {
-                try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-                let data = try JSONEncoder().encode(persisted)
-                try data.write(to: fileURL, options: .atomic)
+                try historyPersistenceQueue.sync {
+                    try Self.writeHistorySnapshot(persisted, directoryURL: directoryURL, fileURL: fileURL)
+                }
+                return true
             } catch {
-                DispatchQueue.main.async { [weak self] in
+                statusMessage = error.localizedDescription
+                return false
+            }
+        }
+
+        historyPersistenceQueue.async { [weak self] in
+            do {
+                try Self.writeHistorySnapshot(persisted, directoryURL: directoryURL, fileURL: fileURL)
+            } catch {
+                DispatchQueue.main.async {
                     self?.statusMessage = error.localizedDescription
                 }
             }
         }
+        return true
+    }
+
+    nonisolated private static func writeHistorySnapshot(
+        _ items: [TranscriptHistoryItem],
+        directoryURL: URL,
+        fileURL: URL
+    ) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(items)
+        try data.write(to: fileURL, options: .atomic)
     }
 
     private func sortHistoryByDateDesc() {
@@ -2147,9 +2482,10 @@ final class AppViewModel: ObservableObject {
 
     private func schedulePendingHistoryDeletionFinalization(for itemID: UUID) {
         pendingHistoryDeletionTask?.cancel()
+        let remaining = max(pendingHistoryDeletion?.expiresAt.timeIntervalSinceNow ?? 0, 0)
         pendingHistoryDeletionTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: 15_000_000_000)
+                try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
             } catch {
                 return
             }
@@ -2173,13 +2509,71 @@ final class AppViewModel: ObservableObject {
         pendingHistoryDeletion = nil
         pendingHistoryDeletionName = nil
 
-        let paths = Set([pending.item.transcriptPath, pending.item.audioPath].compactMap { $0 })
-        for path in paths where FileManager.default.fileExists(atPath: path) {
-            var resultingURL: NSURL?
-            try? FileManager.default.trashItem(
-                at: URL(fileURLWithPath: path),
-                resultingItemURL: &resultingURL
+        trashPendingDeletion(PendingDeletionJournal(item: pending.item, expiresAt: pending.expiresAt))
+    }
+
+    private func pendingDeletionJournalURL(for id: UUID) -> URL {
+        pendingDeletionsDirectoryURL.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    private func savePendingDeletionJournal(_ journal: PendingDeletionJournal) throws {
+        try FileManager.default.createDirectory(at: pendingDeletionsDirectoryURL, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(journal)
+        try data.write(to: pendingDeletionJournalURL(for: journal.item.id), options: .atomic)
+    }
+
+    private func trashPendingDeletion(_ journal: PendingDeletionJournal) {
+        let paths = Set([journal.item.transcriptPath, journal.item.audioPath].compactMap { $0 })
+        do {
+            for path in paths where FileManager.default.fileExists(atPath: path) {
+                var resultingURL: NSURL?
+                try FileManager.default.trashItem(
+                    at: URL(fileURLWithPath: path),
+                    resultingItemURL: &resultingURL
+                )
+            }
+            try FileManager.default.removeItem(at: pendingDeletionJournalURL(for: journal.item.id))
+        } catch {
+            statusMessage = L10n.f("status.historyTrashFailed", error.localizedDescription)
+        }
+    }
+
+    private func recoverPendingHistoryDeletions() {
+        guard !historyWritesBlocked else { return }
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: pendingDeletionsDirectoryURL,
+            includingPropertiesForKeys: nil
+        ) else { return }
+
+        let journals = urls.compactMap { url -> PendingDeletionJournal? in
+            guard url.pathExtension == "json", let data = try? Data(contentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(PendingDeletionJournal.self, from: data)
+        }.sorted { $0.expiresAt < $1.expiresAt }
+
+        var recoveredIndex: Int?
+        for journal in journals {
+            if let index = historyItems.firstIndex(where: { $0.id == journal.item.id }) {
+                recoveredIndex = index
+                historyItems.remove(at: index)
+            }
+        }
+        if recoveredIndex != nil { persistHistoryToDisk() }
+
+        for journal in journals.dropLast() {
+            trashPendingDeletion(journal)
+        }
+        guard let newest = journals.last else { return }
+        if newest.expiresAt <= Date() {
+            trashPendingDeletion(newest)
+        } else {
+            pendingHistoryDeletion = PendingHistoryDeletion(
+                item: newest.item,
+                originalIndex: recoveredIndex ?? 0,
+                wasSelected: false,
+                expiresAt: newest.expiresAt
             )
+            pendingHistoryDeletionName = newest.item.displayName
+            schedulePendingHistoryDeletionFinalization(for: newest.item.id)
         }
     }
 
@@ -2194,7 +2588,7 @@ final class AppViewModel: ObservableObject {
 
     private func addRecordingToHistory(_ result: AudioCaptureService.CaptureResult) {
         if let existing = historyItems.firstIndex(where: { $0.sourceFilePath == result.audioURL.path || $0.audioPath == result.audioURL.path }) {
-            selectedHistoryItemID = historyItems[existing].id
+            selectPendingItem(historyItems[existing].id)
             return
         }
 
@@ -2210,7 +2604,7 @@ final class AppViewModel: ObservableObject {
             isRuntimeOnly: false
         )
         historyItems.insert(item, at: 0)
-        selectedHistoryItemID = item.id
+        selectPendingItem(item.id)
         sortHistoryByDateDesc()
         persistHistoryToDisk()
     }
@@ -2347,14 +2741,15 @@ final class AppViewModel: ObservableObject {
         recordingElapsedText = formattedClock(elapsed)
     }
 
-    private func startModelDownload(to destinationURL: URL) {
-        guard !isDownloadingModel else { return }
+    private func startModelDownload(option: WhisperModelOption, to destinationURL: URL) {
+        guard !isModelManagementBusy else { return }
         guard ensureRuntimeReady() else { return }
 
         let engine = self.engine
 
         isDownloadingModel = true
-        downloadSourceText = L10n.f("status.source", WhisperEngine.modelSourceURLs.first ?? "-")
+        downloadingModelID = option.repositoryID
+        downloadSourceText = L10n.f("status.source", "https://huggingface.co/\(option.repositoryID)")
         downloadProgressText = L10n.f("status.downloadedOnly", byteFormatter.string(fromByteCount: 0))
         downloadProgressFraction = 0.0
         hasKnownDownloadTotal = false
@@ -2363,6 +2758,7 @@ final class AppViewModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let reference = try engine.downloadModel(
+                    option: option,
                     to: destinationURL,
                     status: { message in
                         DispatchQueue.main.async {
@@ -2378,6 +2774,7 @@ final class AppViewModel: ObservableObject {
 
                 DispatchQueue.main.async {
                     self.isDownloadingModel = false
+                    self.downloadingModelID = nil
                     self.currentModelReference = reference
                     self.lastModelID = reference.modelID
                     self.refreshModelStatus()
@@ -2386,6 +2783,8 @@ final class AppViewModel: ObservableObject {
             } catch {
                 DispatchQueue.main.async {
                     self.isDownloadingModel = false
+                    self.downloadingModelID = nil
+                    self.refreshModelStatus()
                     self.statusMessage = error.localizedDescription
                 }
             }
@@ -2421,11 +2820,14 @@ final class AppViewModel: ObservableObject {
     }
 
     private func refreshModelStatus() {
+        installedModels = engine.installedModelReferences()
         if let reference = engine.currentModelReference() {
             hasConnectedModel = true
             currentModelReference = reference
             lastModelID = reference.modelID
-            modelStatus = L10n.f("status.localModel", reference.modelID)
+            let displayName = modelCatalog.first(where: { $0.matches(modelID: reference.modelID) })?.displayName
+                ?? URL(fileURLWithPath: reference.modelPath).lastPathComponent
+            modelStatus = L10n.f("status.localModel", displayName)
             modelLocationText = reference.modelPath
 
             if let sourceRepo = reference.sourceRepo {
@@ -2450,6 +2852,13 @@ final class AppViewModel: ObservableObject {
                 modelHubURL = fallback
             }
         }
+    }
+
+    private func hasEnoughDiskSpace(for option: WhisperModelOption, at url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let available = values?.volumeAvailableCapacityForImportantUsage else { return true }
+        let required = Int64(option.approximateDownloadGB * 1.2 * 1_073_741_824)
+        return available >= required
     }
 
     private func refreshRuntimeIssue() {
@@ -2489,9 +2898,17 @@ final class AppViewModel: ObservableObject {
         lines.append("is_recording: \(isRecording)")
         lines.append("selected_history_item: \(selectedHistoryItemID?.uuidString ?? "none")")
 
-        if let failedItem = historyItems.first(where: { $0.state == .failed }) {
+        let selectedFailedItem = selectedHistoryItem.flatMap { $0.state == .failed ? $0 : nil }
+        if let failedItem = selectedFailedItem ?? historyItems.first(where: { $0.state == .failed }) {
             lines.append("failed_item: \(failedItem.displayName)")
-            lines.append("failed_error: \(failedItem.errorMessage ?? "none")")
+            let failedError = failedItem.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+            lines.append("failed_error: \((failedError?.isEmpty == false ? failedError : nil) ?? "none")")
+            lines.append("failed_source_path: \(failedItem.sourceFilePath)")
+            let sourceSize = (try? URL(fileURLWithPath: failedItem.sourceFilePath).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+            lines.append("failed_source_size_bytes: \(sourceSize)")
+            let mediaDuration = failedItem.mediaDurationSeconds.map { String($0) } ?? "unknown"
+            lines.append("failed_media_duration_seconds: \(mediaDuration)")
+            lines.append("failed_model_id: \(failedItem.modelID ?? currentModelReference?.modelID ?? "unknown")")
         }
 
         lines.append(engine.debugReport())

@@ -2,24 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD_DIR="$ROOT_DIR/build"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
 APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
-APP_TITLE="${APP_TITLE:-GZWhisper 1.5.2}"
+APP_TITLE="${APP_TITLE:-GZWhisper 1.5.3}"
 APP_BUNDLE="$APP_BUNDLE_NAME.app"
 APP_PATH="$BUILD_DIR/$APP_BUNDLE"
-DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.5.2}"
+DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.5.3}"
 DMG_PATH="$BUILD_DIR/${DMG_NAME}.dmg"
 TEMP_DMG="$BUILD_DIR/${DMG_NAME}-temp.dmg"
-VOL_NAME="${VOL_NAME:-GZWhisper 1.5.2 Installer}"
+VOL_NAME="${VOL_NAME:-GZWhisper 1.5.3 Installer}"
 STAGING_DIR="$BUILD_DIR/dmg-staging"
 BG_DIR="$STAGING_DIR/.background"
 BG_PATH="$BG_DIR/background.png"
 MOUNT_POINT="/Volumes/$VOL_NAME"
-BYPASS_SCRIPT_NAME="Enable_GZWhisper.command"
-BYPASS_SCRIPT_SRC="$ROOT_DIR/Resources/$BYPASS_SCRIPT_NAME"
-BYPASS_SCRIPT_DST="$STAGING_DIR/$BYPASS_SCRIPT_NAME"
-INSTRUCTIONS_PATH="$STAGING_DIR/Install_Instructions.txt"
-TERMINAL_FIX_PATH="$STAGING_DIR/Run_If_Blocked.txt"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
 NOTARY_TIMEOUT="${NOTARY_TIMEOUT:-20m}"
@@ -30,10 +25,7 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$BYPASS_SCRIPT_SRC" ]]; then
-  echo "Bypass script not found: $BYPASS_SCRIPT_SRC"
-  exit 1
-fi
+bash "$ROOT_DIR/scripts/check_release_identity.sh" "$APP_PATH"
 
 APP_AUTHORITY="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n 's/^Authority=//p' | head -n 1 || true)"
 APP_ASSESSMENT="$(spctl -a -vv "$APP_PATH" 2>&1 || true)"
@@ -63,47 +55,7 @@ export CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR"
 rm -f "$DMG_PATH" "$TEMP_DMG"
 
 cp -R "$APP_PATH" "$STAGING_DIR/$APP_BUNDLE"
-ditto --noextattr --noqtn "$BYPASS_SCRIPT_SRC" "$BYPASS_SCRIPT_DST"
-chmod +x "$BYPASS_SCRIPT_DST"
-xattr -c "$BYPASS_SCRIPT_DST" 2>/dev/null || true
 ln -s /Applications "$STAGING_DIR/Applications"
-
-cat > "$INSTRUCTIONS_PATH" <<'TEXT'
-Install GZWhisper:
-
-1. Drag __APP_BUNDLE__ to Applications.
-2. Eject this installer.
-3. Open __APP_BUNDLE_NAME__ from Applications.
-
-If macOS blocks launch (recommended fix):
-1. In Applications, right-click __APP_BUNDLE_NAME__ and choose Open.
-2. If needed, open System Settings -> Privacy & Security.
-3. Scroll down and click Open Anyway for __APP_BUNDLE_NAME__.
-4. Confirm with your Mac password or Touch ID.
-5. Launch __APP_BUNDLE_NAME__ again.
-
-Alternative fix:
-Run Enable_GZWhisper.command once after the app has been copied to Applications.
-TEXT
-sed -i '' "s/__APP_BUNDLE__/$APP_BUNDLE/g; s/__APP_BUNDLE_NAME__/$APP_BUNDLE_NAME/g" "$INSTRUCTIONS_PATH"
-
-cat > "$TERMINAL_FIX_PATH" <<'TEXT'
-If __APP_BUNDLE_NAME__ is blocked:
-
-Preferred fix from macOS settings:
-1) Open System Settings -> Privacy & Security.
-2) Scroll down and click Open Anyway for __APP_BUNDLE_NAME__.
-3) Confirm with your Mac password or Touch ID.
-4) Open __APP_BUNDLE_NAME__ again.
-
-If Enable_GZWhisper.command is blocked too:
-
-1) Open Terminal.
-2) Run:
-sudo xattr -dr com.apple.quarantine "/Applications/__APP_BUNDLE__"
-open "/Applications/__APP_BUNDLE__"
-TEXT
-sed -i '' "s/__VOL_NAME__/$VOL_NAME/g; s/__APP_BUNDLE__/$APP_BUNDLE/g; s/__APP_BUNDLE_NAME__/$APP_BUNDLE_NAME/g" "$TERMINAL_FIX_PATH"
 
 swift - <<'SWIFT' "$BG_PATH" "$APP_TITLE"
 import AppKit
@@ -140,8 +92,6 @@ let noteAttrs: [NSAttributedString.Key: Any] = [
 
 (appTitle).draw(at: NSPoint(x: 36, y: 500), withAttributes: titleAttrs)
 ("Перетащите приложение в папку Applications для установки").draw(at: NSPoint(x: 36, y: 468), withAttributes: subtitleAttrs)
-("Если запуск заблокирован: System Settings -> Privacy & Security -> Open Anyway").draw(at: NSPoint(x: 36, y: 438), withAttributes: noteAttrs)
-("Скрипт Enable_GZWhisper.command оставлен как запасной вариант").draw(at: NSPoint(x: 36, y: 418), withAttributes: noteAttrs)
 
 let shadow = NSShadow()
 shadow.shadowColor = NSColor(calibratedWhite: 0.0, alpha: 0.12)
@@ -210,9 +160,6 @@ if ! osascript <<APPLESCRIPT
       set background picture of opts to file ".background:background.png"
       set position of item "$APP_BUNDLE" of container window to {220, 270}
       set position of item "Applications" of container window to {700, 270}
-      set position of item "$BYPASS_SCRIPT_NAME" of container window to {220, 430}
-      set position of item "Install_Instructions.txt" of container window to {460, 430}
-      set position of item "Run_If_Blocked.txt" of container window to {700, 430}
       close
       open
       update without registering applications
@@ -232,20 +179,19 @@ hdiutil convert "$TEMP_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" >
 rm -f "$TEMP_DMG"
 rm -rf "$STAGING_DIR"
 
-ditto --noextattr --noqtn "$BYPASS_SCRIPT_SRC" "$BUILD_DIR/$BYPASS_SCRIPT_NAME"
-chmod +x "$BUILD_DIR/$BYPASS_SCRIPT_NAME"
-xattr -c "$BUILD_DIR/$BYPASS_SCRIPT_NAME" 2>/dev/null || true
-
 if [[ -n "$NOTARYTOOL_PROFILE" ]]; then
   if [[ "$APP_AUTHORITY" != Developer\ ID\ Application:* ]]; then
-    echo "Skipping notarization: Developer ID Application signing is required."
-  else
-    echo "Submitting DMG for notarization with profile: $NOTARYTOOL_PROFILE"
-    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait --timeout "$NOTARY_TIMEOUT"
-    xcrun stapler staple "$DMG_PATH"
-    xcrun stapler validate "$DMG_PATH"
+    echo "Notarization requires Developer ID Application signing." >&2
+    exit 1
   fi
+  DMG_SIGNING_IDENTITY="${SIGNING_IDENTITY:-$APP_AUTHORITY}"
+  [[ "$DMG_SIGNING_IDENTITY" != "auto" ]] || DMG_SIGNING_IDENTITY="$APP_AUTHORITY"
+  codesign --force --timestamp --sign "$DMG_SIGNING_IDENTITY" "$DMG_PATH"
+  echo "Submitting DMG for notarization with profile: $NOTARYTOOL_PROFILE"
+  xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait --timeout "$NOTARY_TIMEOUT"
+  xcrun stapler staple "$DMG_PATH"
+  xcrun stapler validate "$DMG_PATH"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
 fi
 
 echo "Created DMG: $DMG_PATH"
-echo "Standalone bypass script: $BUILD_DIR/$BYPASS_SCRIPT_NAME"

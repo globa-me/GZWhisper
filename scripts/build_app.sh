@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD_DIR="$ROOT_DIR/build"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
+TARGET_ARCH="${TARGET_ARCH:-arm64}"
 APP_MODULE_NAME="GZWhisper"
 APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-GZWhisper}"
 APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
@@ -14,17 +15,27 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
-MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-12.0}"
+MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-14.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
-ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-1}"
-APP_VERSION="${APP_VERSION:-1.5.2}"
-APP_BUILD="${APP_BUILD:-270826}"
+ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-0}"
+EXPECTED_TEAM_ID="${EXPECTED_TEAM_ID:-BN3D9H4C7J}"
+APP_VERSION="${APP_VERSION:-1.5.3}"
+APP_BUILD="${APP_BUILD:-270827}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
-APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-arm64"
+APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-${TARGET_ARCH}"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
 PYTHON_RUNTIME_SOURCE="${PYTHON_RUNTIME_SOURCE:-$ROOT_DIR/Resources/python}"
 WHEELHOUSE_SOURCE="${WHEELHOUSE_SOURCE:-$ROOT_DIR/Resources/wheelhouse}"
 ENTITLEMENTS_FILE="${ENTITLEMENTS_FILE:-$ROOT_DIR/Resources/GZWhisper.entitlements}"
+TARGET_PLATFORM="${TARGET_PLATFORM:-macosx_${MIN_MACOS_VERSION//./_}_${TARGET_ARCH}}"
+
+case "$TARGET_ARCH" in
+  arm64|x86_64) ;;
+  *)
+    echo "Unsupported TARGET_ARCH: $TARGET_ARCH (expected arm64 or x86_64)" >&2
+    exit 1
+    ;;
+esac
 
 detect_signing_identity() {
   local identities
@@ -94,17 +105,12 @@ detect_signing_identity() {
 }
 
 if [[ "$SIGNING_IDENTITY" == "auto" ]]; then
-  if AUTO_SIGNING_IDENTITY="$(detect_signing_identity)"; then
-    if [[ -n "$AUTO_SIGNING_IDENTITY" ]]; then
-      SIGNING_IDENTITY="$AUTO_SIGNING_IDENTITY"
-    else
-      SIGNING_IDENTITY="-"
-    fi
-  else
-    echo "Warning: no usable signing identity was selected."
-    echo "Falling back to ad-hoc signing. macOS may ask for privacy permissions again after each update."
-    SIGNING_IDENTITY="-"
+  if ! AUTO_SIGNING_IDENTITY="$(detect_signing_identity)" || [[ -z "$AUTO_SIGNING_IDENTITY" ]]; then
+    echo "No usable signing identity found. Build stopped to preserve macOS recording permissions." >&2
+    echo "Unlock the Keychain or set SIGNING_IDENTITY=- explicitly for an isolated test build." >&2
+    exit 1
   fi
+  SIGNING_IDENTITY="$AUTO_SIGNING_IDENTITY"
 fi
 
 rm -rf "$APP_DIR"
@@ -116,7 +122,7 @@ export CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR"
 swiftc \
   -parse-as-library \
   -module-name "$APP_MODULE_NAME" \
-  -target "arm64-apple-macos${MIN_MACOS_VERSION}" \
+  -target "${TARGET_ARCH}-apple-macos${MIN_MACOS_VERSION}" \
   -sdk "$SDK_PATH" \
   -o "$APP_BIN" \
   "$ROOT_DIR"/Sources/*.swift \
@@ -131,6 +137,7 @@ mv "$APP_BIN" "$MACOS_DIR/$APP_EXECUTABLE_NAME"
 
 cp "$ROOT_DIR/Resources/transcription_worker.py" "$RESOURCES_DIR/transcription_worker.py"
 chmod +x "$RESOURCES_DIR/transcription_worker.py"
+cp "$ROOT_DIR/Resources/requirements-macos.txt" "$RESOURCES_DIR/requirements-macos.txt"
 
 if [[ -f "$ROOT_DIR/Resources/AppIcon.png" ]]; then
   cp "$ROOT_DIR/Resources/AppIcon.png" "$RESOURCES_DIR/AppIcon.png"
@@ -168,9 +175,9 @@ if [[ -z "$EMBEDDED_PYTHON" ]]; then
   exit 1
 fi
 
-if ! file "$EMBEDDED_PYTHON" | grep -q "arm64"; then
-  echo "Embedded Python runtime is not arm64: $EMBEDDED_PYTHON"
-  echo "Prepare an Apple Silicon Python runtime before building."
+if ! lipo -archs "$EMBEDDED_PYTHON" | tr ' ' '\n' | grep -qx "$TARGET_ARCH"; then
+  echo "Embedded Python runtime does not contain $TARGET_ARCH: $EMBEDDED_PYTHON"
+  echo "Prepare a Python runtime for the selected target architecture."
   exit 1
 fi
 
@@ -187,6 +194,7 @@ if [[ ! -d "$RESOURCES_DIR/wheelhouse" ]]; then
   exit 1
 fi
 
+TARGET_ARCH="$TARGET_ARCH" TARGET_PLATFORM="$TARGET_PLATFORM" \
 "$ROOT_DIR/scripts/check_wheelhouse.sh" \
   "$EMBEDDED_PYTHON" \
   "$RESOURCES_DIR/wheelhouse" \
@@ -223,6 +231,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <string>${MIN_MACOS_VERSION}</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>GZWhisper needs microphone access to record audio.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>GZWhisper needs screen and system audio recording access to capture audio playing on this Mac.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
@@ -235,7 +245,7 @@ if [[ "$SIGNING_IDENTITY" == "-" ]]; then
   echo "Warning: building with ad-hoc signature."
   echo "Public distribution on other Macs will require manual approval after the app is copied to /Applications."
   echo "macOS privacy permissions like Screen Recording and System Audio may be treated as new on every update."
-  codesign --force --deep --entitlements "$ENTITLEMENTS_FILE" --sign - "$APP_DIR" >/dev/null 2>&1 || true
+  codesign --force --deep --entitlements "$ENTITLEMENTS_FILE" --sign - "$APP_DIR"
 else
   echo "Signing app with identity: $SIGNING_IDENTITY"
   if security find-identity -v -p codesigning 2>/dev/null \
@@ -244,7 +254,13 @@ else
     echo "Warning: Apple Development signing is for local testing on your own Macs."
     echo "Public releases should use Developer ID Application and notarization."
   fi
-  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS_FILE" --timestamp --sign "$SIGNING_IDENTITY" "$APP_DIR"
+  /usr/bin/python3 "$ROOT_DIR/scripts/sign_app.py" "$APP_DIR" "$SIGNING_IDENTITY" "$ENTITLEMENTS_FILE"
+  ACTUAL_TEAM_ID="$(codesign -dv --verbose=4 "$APP_DIR" 2>&1 | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
+  if [[ "$ACTUAL_TEAM_ID" != "$EXPECTED_TEAM_ID" ]]; then
+    echo "Signing team changed ($ACTUAL_TEAM_ID; expected $EXPECTED_TEAM_ID)." >&2
+    echo "A changed team can invalidate the existing macOS recording permission." >&2
+    exit 1
+  fi
 fi
 
 echo "Built app: $APP_DIR"
