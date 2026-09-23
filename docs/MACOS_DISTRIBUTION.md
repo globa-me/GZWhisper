@@ -35,6 +35,20 @@ DMGs contain the app and Applications shortcut. ZIP archives contain the app and
 install instructions. Neither package includes a Gatekeeper bypass tool. Existing
 public release downloads are not replaced by building a new local release.
 
+## v1.5.4 release — 2026-09-23
+
+- Source version 1.5.4, build 270828, macOS 14.0+. Both architecture builds passed Swift typechecking and offline wheelhouse checks.
+- Apple Silicon app/DMG notarization submissions: `5d7b3310-ae2b-4db2-942c-6087d8b2e0cf` / `407769bf-c7e0-45c6-ab23-b7f94870808e` — Accepted and stapled.
+- Intel app/DMG notarization submissions: `6816e02d-2da4-4b22-878c-25caa9d32d55` / `8bb03240-34a6-4e65-b65b-cfcc05145bd4` — Accepted and stapled.
+- Generic Apple Silicon DMG submission: `d36344b5-b78c-48ca-b30c-221fa3b8628b` — Accepted and stapled.
+- Both mounted architecture-specific DMGs contained a single-architecture app; strict signature and Gatekeeper checks passed on the mounted apps. The extracted Apple Silicon ZIP app passed strict signature, stapler and Gatekeeper checks.
+- The Apple Silicon app was installed at `/Applications/GZWhisper.app`; the previous app and pre-migration history JSON were backed up under ignored `build/installed-backup/`. All 212 history entries remained. The app saved original recording dates for 212 entries and completion dates for 206 completed entries. Rename with spaces, Enter and Escape was exercised in the UI; the test rename was reverted. The sort menu was exercised and returned to recording-date mode.
+- Apple Silicon DMG SHA-256: `740b2b8ebe9321dfb2b7959f827c994583338afd3fae2b034c787b963c2c179e`.
+- Intel DMG SHA-256: `dd2b0222eeabc11ea1a06a740aa4e22f2300787c965e6484194e09ac74512125`.
+- Generic DMG SHA-256: `7f15b56de1b08996de56a9e6790afeda4bcc8b8e8cfb8790c6c3f7d666fc736f`.
+- Apple Silicon ZIP SHA-256: `a0c59a08a127edb18a36c7119c2d6f7dd423d345454c3b79751cf3ae24fd8cdf`.
+- Physical Intel hardware remains untested; verify on an Intel Mac when available.
+
 ## v1.5.3 release — 2026-09-23
 
 - Source version: 1.5.3, build 270827, deployment target macOS 14.0.

@@ -4,7 +4,8 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 
 ## Current State
 
-- Current source and published version: `v1.5.3`, build `270827`. README download links select the architecture-specific 1.5.3 DMGs and Apple Silicon ZIP.
+- Current source and release version: `v1.5.4`, build `270828`. This update fixes inline history rename keyboard handling and separates the original media date (`recordedAt`) from the transcription completion date (`transcribedAt`). History displays and defaults to sorting by the original date; the history header also offers persistent sorting by transcription date. Older entries are migrated and saved on load: app recording filenames provide the original Unix timestamp, otherwise file creation/modification metadata is used, with legacy `createdAt` as fallback. New transcriptions no longer overwrite `createdAt`. See `docs/RELEASE_NOTES_1.5.4_RU.md`.
+- Previous published version: `v1.5.3`, build `270827`. Its release remains available as a rollback reference.
 - The Apple Silicon `v1.5.3` app, ZIP, and DMG were built on 2026-09-23. Apple accepted app submission `e9f36619-47a3-4686-beef-71093726ef42` and DMG submission `c08e4ebf-4f62-45da-a42b-44fe15ef89fc`; both tickets were stapled. Gatekeeper accepts the app, DMG, extracted ZIP app, and mounted DMG app as `Notarized Developer ID`. Separate Apple Silicon and Intel apps/DMGs were also built, notarized, and verified from mounted images; IDs and hashes are in `docs/MACOS_DISTRIBUTION.md`. The notarytool Keychain profile `GZWhisper` is available; an earlier unavailable-profile result was transient. Swift typechecking passed for arm64 and x86_64; isolated history tests passed for queued imports, TXT edit/segment invalidation, damaged JSON salvage, and undo recovery after restart. The installed `/Applications/GZWhisper.app` was updated from 1.5.2 to the notarized 1.5.3 Apple Silicon variant; its previous app bundle is backed up under `build/installed-backup/`. The main UI opened with all 210 existing history items, and a system + microphone recording started without a new macOS permission prompt. The test recording was deleted through the app. Physical Intel hardware validation remains recommended. See `docs/RELEASE_NOTES_1.5.3_RU.md` and `docs/MACOS_DISTRIBUTION.md`.
 - Version `v1.5.3` saves transcript edits to the original TXT automatically and before switching items, export, or window close; manual edits invalidate stored segment timestamps. History JSON now retains unedited segment timestamps and the model path used for each result. Imported queue items survive restart; a malformed history file is backed up and individually recoverable entries are loaded. Pending history deletions use an on-disk journal so expiration is resolved after restart. The main UI uses a single window to avoid concurrent history writers, history rows are keyboard/VoiceOver accessible, and the result pane has state-specific empty messages. Recording startup is guarded against repeated clicks. macOS build defaults now target 14.0.
 - To preserve ScreenCaptureKit TCC grants across releases, `build_app.sh` now requires a stable signed identity by default and never silently falls back to ad hoc signing. `check_release_identity.sh` gates ZIP/DMG/notarization on the fixed bundle ID, Team ID, valid Developer ID signature, and the installed app's designated requirement when present. The installed 1.5.2 app and local 1.5.3 app had identical designated requirements. Explicit ad hoc builds remain possible with `SIGNING_IDENTITY=-` for isolated testing only. Apple documentation says a change from ad hoc or another signing identity can require one fresh grant; do not reset TCC permissions as part of updates.
@@ -25,13 +26,13 @@ This repository contains GZWhisper, a local-first desktop transcription app.
 - `docs/GZWHISPER_PRODUCT_FUNCTIONALITY_RU.md` is the maintained Russian product-functionality baseline for competitor research. It describes the full macOS feature set, Linux/Windows differences, current limitations, local data handling, and a ready-to-use deep-research prompt; update it when user-facing capabilities materially change. Regenerate its shareable DOCX with `scripts/build_product_functionality_docx.py`.
 - Primary supported platform: macOS on Apple Silicon (`arm64`) and Intel (`x86_64`). Architecture-specific builds are produced separately with a macOS 14.0 deployment target, covering macOS 14 and macOS 15.
 - Linux and Windows portable variants exist, but macOS is the priority and the only stable/tested target. The Intel build has been cross-compiled and exercised through Rosetta x86_64 execution; final hardware validation should still be repeated on a physical Intel Mac when one is available.
-- The current macOS app bundle is `build/GZWhisper.app`.
+- The local Apple Silicon app bundle is `build/GZWhisper.app`; architecture-specific release bundles are under `build/releases/`.
 - Release package defaults are:
-  - `build/GZWhisper-macOS-1.5.3.zip`
-  - `build/GZWhisper-Installer-1.5.3.dmg`
+  - `build/GZWhisper-macOS-1.5.4.zip`
+  - `build/GZWhisper-Installer-1.5.4.dmg`
 - Architecture-specific release artifacts are:
-  - `build/releases/Apple-Silicon/GZWhisper-Installer-1.5.3-Apple-Silicon.dmg`
-  - `build/releases/Intel/GZWhisper-Installer-1.5.3-Intel.dmg`
+  - `build/releases/Apple-Silicon/GZWhisper-Installer-1.5.4-Apple-Silicon.dmg`
+  - `build/releases/Intel/GZWhisper-Installer-1.5.4-Intel.dmg`
 
 ## Project Layout
 

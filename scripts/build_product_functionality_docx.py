@@ -292,7 +292,7 @@ def configure_section(section):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.tab_stops.add_tab_stop(Inches(6.5), WD_TAB_ALIGNMENT.RIGHT)
-    left = p.add_run("v1.5.3 · состояние 23.09.2026")
+    left = p.add_run("v1.5.4 · состояние 23.09.2026")
     set_font(left, size=9, color=MUTED)
     p.add_run("\t")
     label = p.add_run("Стр. ")
@@ -347,7 +347,7 @@ def add_cover(doc):
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
     metadata.paragraph_format.space_after = Pt(5)
-    run = metadata.add_run("Версия исходников: v1.5.3, build 270827")
+    run = metadata.add_run("Версия исходников: v1.5.4, build 270828")
     set_font(run, size=10.5, color=MUTED)
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER

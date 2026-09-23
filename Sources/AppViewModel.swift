@@ -26,6 +26,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     var customName: String?
     var sourceFilePath: String
     var createdAt: Date
+    var recordedAt: Date?
+    var transcribedAt: Date?
     var mediaDurationSeconds: Double?
     var audioPath: String?
     var transcriptPath: String?
@@ -47,6 +49,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         customName: String? = nil,
         sourceFilePath: String,
         createdAt: Date,
+        recordedAt: Date? = nil,
+        transcribedAt: Date? = nil,
         mediaDurationSeconds: Double?,
         audioPath: String? = nil,
         transcriptPath: String? = nil,
@@ -67,6 +71,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         self.customName = customName
         self.sourceFilePath = sourceFilePath
         self.createdAt = createdAt
+        self.recordedAt = recordedAt
+        self.transcribedAt = transcribedAt
         self.mediaDurationSeconds = mediaDurationSeconds
         self.audioPath = audioPath
         self.transcriptPath = transcriptPath
@@ -89,6 +95,8 @@ struct TranscriptHistoryItem: Identifiable, Codable {
         case customName
         case sourceFilePath
         case createdAt
+        case recordedAt
+        case transcribedAt
         case mediaDurationSeconds
         case audioPath
         case transcriptPath
@@ -105,6 +113,9 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     var hasTranscript: Bool {
         transcriptPath != nil
     }
+
+    var recordingDate: Date { recordedAt ?? createdAt }
+    var transcriptionDate: Date? { transcribedAt ?? (state == .completed ? createdAt : nil) }
 
     var hasAudio: Bool {
         audioPath != nil
@@ -430,10 +441,10 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.3"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.4"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "270827"
+        ) ?? "270828"
     }
 
     deinit {
@@ -1644,7 +1655,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func historyMetaText(for item: TranscriptHistoryItem) -> String {
-        let datePart = historyDateFormatter.string(from: item.createdAt)
+        let datePart = historyDateFormatter.string(from: item.recordingDate)
         let durationPart = formattedDuration(item.mediaDurationSeconds)
         if let recordingMode = item.recordingMode {
             return "\(datePart) • \(durationPart) • \(recordingModeShortTitle(recordingMode))"
@@ -2004,7 +2015,7 @@ final class AppViewModel: ObservableObject {
 
         historyItems[index].state = .completed
         historyItems[index].queueOrder = nil
-        historyItems[index].createdAt = completedAt
+        historyItems[index].transcribedAt = completedAt
         historyItems[index].transcriptPath = transcriptURL.path
         historyItems[index].detectedLanguage = result.detectedLanguage
         historyItems[index].modelID = result.modelID
@@ -2143,6 +2154,7 @@ final class AppViewModel: ObservableObject {
                 sourceFileName: url.lastPathComponent,
                 sourceFilePath: url.path,
                 createdAt: now.addingTimeInterval(Double(offset) * 0.001),
+                recordedAt: Self.originalMediaDate(at: url, fallback: now),
                 mediaDurationSeconds: durationSeconds,
                 state: .queued,
                 queueOrder: nextQueueOrder() + offset,
@@ -2351,6 +2363,7 @@ final class AppViewModel: ObservableObject {
             }
         }
 
+        let needsDateMigration = decoded.contains { $0.recordedAt == nil || ($0.state == .completed && $0.transcribedAt == nil) }
         historyItems = decoded.map { item in
             var copy = item
             copy.progressFraction = nil
@@ -2378,11 +2391,20 @@ final class AppViewModel: ObservableObject {
             copy.isRuntimeOnly = copy.state == .queued
                 && copy.audioPath == nil
                 && copy.transcriptPath == nil
+            if copy.recordedAt == nil {
+                copy.recordedAt = Self.originalMediaDate(for: copy)
+            }
+            if copy.transcribedAt == nil && copy.state == .completed {
+                copy.transcribedAt = copy.createdAt
+            }
             return copy
         }
 
         normalizeQueueOrders()
         sortHistoryByDateDesc()
+        if needsDateMigration {
+            persistHistoryToDisk(synchronously: true)
+        }
     }
 
     @discardableResult
@@ -2463,7 +2485,30 @@ final class AppViewModel: ObservableObject {
                 return queueSortKey(for: lhs) < queueSortKey(for: rhs)
             }
 
-            return lhs.createdAt > rhs.createdAt
+            return lhs.recordingDate > rhs.recordingDate
+        }
+    }
+
+    private static func originalMediaDate(for item: TranscriptHistoryItem) -> Date {
+        originalMediaDate(at: URL(fileURLWithPath: item.sourceFilePath), fallback: item.createdAt)
+    }
+
+    private static func originalMediaDate(at url: URL, fallback: Date) -> Date {
+        let name = url.deletingPathExtension().lastPathComponent
+        if name.hasPrefix("recording-"),
+           let token = name.split(separator: "-").last,
+           let seconds = TimeInterval(token),
+           seconds > 1_000_000_000,
+           seconds <= Date().timeIntervalSince1970 + 86_400 {
+            return Date(timeIntervalSince1970: seconds)
+        }
+
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+        switch (values?.creationDate, values?.contentModificationDate) {
+        case let (created?, modified?): return min(created, modified)
+        case let (created?, nil): return created
+        case let (nil, modified?): return modified
+        default: return fallback
         }
     }
 
@@ -2596,6 +2641,7 @@ final class AppViewModel: ObservableObject {
             sourceFileName: result.audioURL.lastPathComponent,
             sourceFilePath: result.audioURL.path,
             createdAt: Date(),
+            recordedAt: Self.originalMediaDate(at: result.audioURL, fallback: Date()),
             mediaDurationSeconds: result.durationSeconds,
             audioPath: result.audioURL.path,
             recordingMode: result.mode,

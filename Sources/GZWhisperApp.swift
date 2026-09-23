@@ -50,6 +50,7 @@ struct ContentView: View {
     @State private var selectedExportItemIDs: Set<UUID> = []
     @State private var editingHistoryItemID: UUID?
     @State private var historyRenameDraft = ""
+    @AppStorage("historySortByTranscriptionDate") private var historySortByTranscriptionDate = false
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
     @State private var isModelManagerPresented = false
     @FocusState private var focusedHistoryRenameFieldID: UUID?
@@ -119,12 +120,21 @@ struct ContentView: View {
     }
 
     private var filteredHistoryItems: [TranscriptHistoryItem] {
-        guard isHistorySearchActive else {
-            return viewModel.historyItems
+        let items: [TranscriptHistoryItem]
+        if isHistorySearchActive {
+            let currentItems = Dictionary(uniqueKeysWithValues: viewModel.historyItems.map { ($0.id, $0) })
+            items = historySearchResults.compactMap { currentItems[$0.id] }
+        } else {
+            items = viewModel.historyItems
         }
-
-        let currentItems = Dictionary(uniqueKeysWithValues: viewModel.historyItems.map { ($0.id, $0) })
-        return historySearchResults.compactMap { currentItems[$0.id] }
+        guard historySortByTranscriptionDate else { return items }
+        let active = items.filter { $0.state == .queued || $0.state == .processing }
+        let completed = items.filter { $0.state != .queued && $0.state != .processing }
+        return active + completed.sorted { lhs, rhs in
+            let lhsDate = lhs.transcriptionDate ?? lhs.recordingDate
+            let rhsDate = rhs.transcriptionDate ?? rhs.recordingDate
+            return lhsDate == rhsDate ? lhs.id.uuidString < rhs.id.uuidString : lhsDate > rhsDate
+        }
     }
 
     private var isHistorySearchActive: Bool {
@@ -830,6 +840,26 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                     .help(L10n.t("button.cancel"))
                 } else {
+                    Menu {
+                        Button {
+                            historySortByTranscriptionDate = false
+                        } label: {
+                            if !historySortByTranscriptionDate { Image(systemName: "checkmark") }
+                            Text(L10n.t("history.sortRecordingDate"))
+                        }
+                        Button {
+                            historySortByTranscriptionDate = true
+                        } label: {
+                            if historySortByTranscriptionDate { Image(systemName: "checkmark") }
+                            Text(L10n.t("history.sortTranscriptionDate"))
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help(L10n.t("history.sortHelp"))
+                    .accessibilityLabel(L10n.t("history.sortHelp"))
+
                     Button(action: beginBulkExportSelection) {
                         Image(systemName: "archivebox")
                     }
@@ -1019,6 +1049,7 @@ struct ContentView: View {
                                 .onSubmit {
                                     commitHistoryRename(for: item.id)
                                 }
+                                .onExitCommand(perform: cancelHistoryRename)
                         } else {
                             Text(viewModel.historyDisplayName(for: item))
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -1197,6 +1228,17 @@ struct ContentView: View {
             .focused($focusedHistoryRowID, equals: item.id)
             .onTapGesture { activateHistoryRow(item) }
             .onKeyPress { press in
+                if editingHistoryItemID == item.id {
+                    if press.key == .escape {
+                        cancelHistoryRename()
+                        return .handled
+                    }
+                    if press.key == .return {
+                        commitHistoryRename(for: item.id)
+                        return .handled
+                    }
+                    return .ignored
+                }
                 guard press.key == .return || press.key == .space else { return .ignored }
                 activateHistoryRow(item)
                 return .handled
@@ -1233,7 +1275,10 @@ struct ContentView: View {
     private func beginHistoryRename(_ item: TranscriptHistoryItem) {
         editingHistoryItemID = item.id
         historyRenameDraft = viewModel.historyDisplayName(for: item)
-        focusedHistoryRenameFieldID = item.id
+        focusedHistoryRowID = nil
+        DispatchQueue.main.async {
+            focusedHistoryRenameFieldID = item.id
+        }
     }
 
     private func toggleQueueSelection(for id: UUID) {

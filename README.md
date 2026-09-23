@@ -16,11 +16,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Apple-Silicon.dmg"><strong>Apple Silicon DMG</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Apple-Silicon.dmg"><strong>Apple Silicon DMG</strong></a>
   ·
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Intel.dmg"><strong>Intel DMG</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Intel.dmg"><strong>Intel DMG</strong></a>
   ·
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.3.zip"><strong>Apple Silicon ZIP</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.4.zip"><strong>Apple Silicon ZIP</strong></a>
   ·
   <a href="docs/GZWHISPER_PRODUCT_FUNCTIONALITY_RU.md">Описание на русском</a>
 </p>
@@ -53,7 +53,7 @@
 - Intel-safe retry and explicit diagnostics when the native transcription worker is terminated unexpectedly.
 - Audio, video, microphone, system audio, or system audio + microphone.
 - Pause/resume recording and automatic recovery after interrupted sessions.
-- Searchable history, transcription queue, rename, delete with undo, and quick actions.
+- Searchable history with original recording dates, optional transcription-date sorting, queue, rename, delete with undo, and quick actions.
 - Draft edits save automatically; queued imports survive restart; history rows work with the keyboard and VoiceOver.
 - TXT and JSON export, including multi-select ZIP archives with one file per transcript.
 - Russian, English, and Chinese interface.
@@ -62,13 +62,13 @@ Your media, recordings, models, and transcripts stay on your Mac. Network access
 
 ## Install on macOS
 
-Current release: **v1.5.3 · build 270827**.
+Current release: **v1.5.4 · build 270828**.
 
-[v1.5.3 change notes](docs/RELEASE_NOTES_1.5.3_RU.md)
+[v1.5.4 change notes](docs/RELEASE_NOTES_1.5.4_RU.md)
 
 Requirements for the architecture-specific builds: Apple Silicon or 64-bit Intel Mac, macOS 14 or later. Both macOS 14 and macOS 15 are supported.
 
-1. Download the [Apple Silicon DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Apple-Silicon.dmg), [Intel DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.3-Intel.dmg), or [Apple Silicon ZIP](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.3.zip).
+1. Download the [Apple Silicon DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Apple-Silicon.dmg), [Intel DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Intel.dmg), or [Apple Silicon ZIP](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.4.zip).
 2. Move `GZWhisper.app` to `/Applications`.
 3. Open the app and allow microphone or system-audio access when needed.
 
