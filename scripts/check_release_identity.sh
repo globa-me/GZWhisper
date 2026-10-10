@@ -2,10 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_PATH="${1:-$ROOT_DIR/build/GZWhisper.app}"
+APP_PATH="${1:-$ROOT_DIR/build/GZ Whisper Legacy.app}"
 EXPECTED_BUNDLE_ID="${EXPECTED_BUNDLE_ID:-com.gzakharov.gzwhisper}"
 EXPECTED_TEAM_ID="${EXPECTED_TEAM_ID:-BN3D9H4C7J}"
-REFERENCE_APP="${REFERENCE_APP-/Applications/GZWhisper.app}"
+# Prefer the renamed installed app, while still checking identity on first upgrade.
+DEFAULT_REFERENCE_APP="/Applications/GZ Whisper Legacy.app"
+if [[ ! -d "$DEFAULT_REFERENCE_APP" ]]; then
+  DEFAULT_REFERENCE_APP="/Applications/GZWhisper.app"
+fi
+REFERENCE_APP="${REFERENCE_APP-$DEFAULT_REFERENCE_APP}"
 
 [[ -d "$APP_PATH" ]] || { echo "App not found: $APP_PATH" >&2; exit 1; }
 

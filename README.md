@@ -1,11 +1,12 @@
 <p align="center">
-  <img src="Resources/AppIcon.png" width="96" alt="GZWhisper icon">
+  <img src="Resources/AppIcon.png" width="96" alt="GZ Whisper Legacy icon">
 </p>
 
-<h1 align="center">GZWhisper</h1>
+<h1 align="center">GZ Whisper Legacy</h1>
 
 <p align="center">
-  Private, local-first transcription for macOS.
+  Private, local-first transcription for macOS.<br>
+  Maintenance only: fixes for user-reported bugs.
 </p>
 
 <p align="center">
@@ -16,18 +17,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Apple-Silicon.dmg"><strong>Apple Silicon DMG</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/download/v1.5.5/GZWhisper-Legacy-Installer-1.5.5-Apple-Silicon.dmg"><strong>Apple Silicon DMG</strong></a>
   ·
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Intel.dmg"><strong>Intel DMG</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/download/v1.5.5/GZWhisper-Legacy-Installer-1.5.5-Intel.dmg"><strong>Intel DMG</strong></a>
   ·
-  <a href="https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.4.zip"><strong>Apple Silicon ZIP</strong></a>
+  <a href="https://github.com/globa-me/GZWhisper/releases/download/v1.5.5/GZWhisper-Legacy-macOS-1.5.5.zip"><strong>Apple Silicon ZIP</strong></a>
   ·
   <a href="docs/GZWHISPER_PRODUCT_FUNCTIONALITY_RU.md">Описание на русском</a>
 </p>
 
 <p align="center">
   <strong>Support independent GZ Apps development</strong><br>
-  Get ready-to-run builds, updates, and member posts while helping me improve this project.
+  Support GZ Apps development and maintenance updates.
 </p>
 
 <p align="center">
@@ -38,13 +39,21 @@
 <table>
   <tr>
     <td width="72%">
-      <img src="docs/assets/gzwhisper-main.png" alt="GZWhisper main window">
+      <img src="docs/assets/gzwhisper-main.png" alt="GZ Whisper Legacy main window">
     </td>
     <td width="28%">
-      <img src="docs/assets/gzwhisper-history-search.png" alt="GZWhisper history search">
+      <img src="docs/assets/gzwhisper-history-search.png" alt="GZ Whisper Legacy history search">
     </td>
   </tr>
 </table>
+
+## Maintenance status
+
+As of 2026-10-09, this app is **GZ Whisper Legacy**. New feature development is frozen; future work is limited to fixes for user-reported bugs. Active development continues in the separate **GZ Whisper** app for iOS and macOS.
+
+Current release: **v1.5.5 · build 270829** (2026-10-10). [Legacy update notes](docs/RELEASE_NOTES_1.5.5_RU.md). Earlier releases remain available under the original GZWhisper name.
+
+The Legacy update retains the existing bundle ID, history, models, settings, and data folders. New GZ Whisper has its own application identity. The screenshots above show the earlier interface under its original name.
 
 ## Highlights
 
@@ -62,20 +71,21 @@ Your media, recordings, models, and transcripts stay on your Mac. Network access
 
 ## Install on macOS
 
-Current release: **v1.5.4 · build 270828**.
+Current release: **GZ Whisper Legacy v1.5.5 · build 270829**.
 
-[v1.5.4 change notes](docs/RELEASE_NOTES_1.5.4_RU.md)
+[v1.5.5 change notes](docs/RELEASE_NOTES_1.5.5_RU.md)
 
 Requirements for the architecture-specific builds: Apple Silicon or 64-bit Intel Mac, macOS 14 or later. Both macOS 14 and macOS 15 are supported.
 
-1. Download the [Apple Silicon DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Apple-Silicon.dmg), [Intel DMG](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-Installer-1.5.4-Intel.dmg), or [Apple Silicon ZIP](https://github.com/globa-me/GZWhisper/releases/latest/download/GZWhisper-macOS-1.5.4.zip).
-2. Move `GZWhisper.app` to `/Applications`.
-3. Open the app and allow microphone or system-audio access when needed.
+1. Download the [Apple Silicon DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.5/GZWhisper-Legacy-Installer-1.5.5-Apple-Silicon.dmg), [Intel DMG](https://github.com/globa-me/GZWhisper/releases/download/v1.5.5/GZWhisper-Legacy-Installer-1.5.5-Intel.dmg), or [Apple Silicon ZIP](https://github.com/globa-me/GZWhisper/releases/download/v1.5.5/GZWhisper-Legacy-macOS-1.5.5.zip).
+2. When updating, quit the previous app and back up `GZWhisper.app` before moving it out of `/Applications`. Keep your existing data folders.
+3. Move `GZ Whisper Legacy.app` to `/Applications`.
+4. Open Legacy and allow microphone or system-audio access when needed. Do not reset existing privacy permissions.
 
 <details>
 <summary><strong>If macOS blocks the app</strong></summary>
 
-Control-click `GZWhisper.app` and choose **Open**. If macOS still blocks it, open **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper globally.
+Control-click `GZ Whisper Legacy.app` and choose **Open**. If macOS still blocks it, open **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper globally.
 
 </details>
 
@@ -86,10 +96,10 @@ git clone https://github.com/globa-me/GZWhisper.git
 cd GZWhisper
 PYTHON_BIN="$(brew --prefix python@3.12)/bin/python3.12" ./scripts/prepare_embedded_python.sh
 ./scripts/build_app.sh
-open build/GZWhisper.app
+open "build/GZ Whisper Legacy.app"
 ```
 
-The macOS build uses the bundled Python runtime and offline wheelhouse. Release packages:
+The macOS build uses the bundled Python runtime and offline wheelhouse. It creates `build/GZ Whisper Legacy.app`; package defaults are `build/GZWhisper-Legacy-macOS-1.5.5.zip` and `build/GZWhisper-Legacy-Installer-1.5.5.dmg`. For a Legacy update, quit the original app, back it up, and keep only `GZ Whisper Legacy.app` in `/Applications`. Release packages:
 
 ```bash
 ./scripts/package_zip.sh
@@ -125,7 +135,7 @@ The resulting artifacts are written to `build/releases/Apple-Silicon/` and `buil
 ```bash
 ./scripts/check_repo_security.sh
 ./scripts/check_wheelhouse.sh
-codesign --verify --deep --strict build/GZWhisper.app
+codesign --verify --deep --strict "build/GZ Whisper Legacy.app"
 ```
 
 Built and maintained by [Gennadiy Zakharov](https://zakharov.asia/).

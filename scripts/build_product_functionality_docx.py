@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the shareable Russian GZWhisper product-functionality brief."""
+"""Build the shareable Russian GZ Whisper Legacy product-functionality brief."""
 
 from __future__ import annotations
 
@@ -281,7 +281,7 @@ def configure_section(section):
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.tab_stops.add_tab_stop(Inches(6.5), WD_TAB_ALIGNMENT.RIGHT)
-    left = p.add_run("GZWhisper")
+    left = p.add_run("GZ Whisper Legacy")
     set_font(left, size=9, color=MUTED, bold=True)
     p.add_run("\t")
     right = p.add_run("Функциональный baseline для исследования конкурентов")
@@ -292,7 +292,7 @@ def configure_section(section):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.tab_stops.add_tab_stop(Inches(6.5), WD_TAB_ALIGNMENT.RIGHT)
-    left = p.add_run("v1.5.4 · состояние 23.09.2026")
+    left = p.add_run("v1.5.5 · состояние 10.10.2026")
     set_font(left, size=9, color=MUTED)
     p.add_run("\t")
     label = p.add_run("Стр. ")
@@ -312,7 +312,7 @@ def add_cover(doc):
 
     title = doc.add_paragraph(style="Cover Title")
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title.add_run("GZWhisper")
+    title.add_run("GZ Whisper Legacy")
 
     subtitle = doc.add_paragraph(style="Subtitle")
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -321,7 +321,7 @@ def add_cover(doc):
     purpose = doc.add_paragraph()
     purpose.alignment = WD_ALIGN_PARAGRAPH.CENTER
     purpose.paragraph_format.space_after = Pt(34)
-    run = purpose.add_run("Контекст для глубокого исследования конкурентов\nи поиска функций для продуктового развития")
+    run = purpose.add_run("Контекст для глубокого исследования конкурентов\nи справочный материал для нового GZ Whisper")
     set_font(run, size=12, color=DARK_BLUE, bold=True)
 
     callout = doc.add_paragraph()
@@ -342,17 +342,17 @@ def add_cover(doc):
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
     metadata.paragraph_format.space_after = Pt(5)
-    run = metadata.add_run("Снимок продукта: 23 сентября 2026 года")
+    run = metadata.add_run("Снимок продукта: 10 октября 2026 года")
     set_font(run, size=10.5, color=MUTED)
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
     metadata.paragraph_format.space_after = Pt(5)
-    run = metadata.add_run("Версия исходников: v1.5.4, build 270828")
+    run = metadata.add_run("Опубликованная версия macOS: v1.5.5, build 270829")
     set_font(run, size=10.5, color=MUTED)
     metadata = doc.add_paragraph()
     metadata.alignment = WD_ALIGN_PARAGRAPH.CENTER
     metadata.paragraph_format.space_after = Pt(0)
-    run = metadata.add_run("Учтено актуальное состояние рабочего дерева, включая улучшения сохранения, истории и доступности")
+    run = metadata.add_run("Legacy: новые функции заморожены; поддержка — исправление ошибок пользователей")
     set_font(run, size=10.5, color=MUTED)
 
     doc.add_page_break()
@@ -453,10 +453,10 @@ def build():
         add_inline_markdown(p, line)
 
     core = doc.core_properties
-    core.title = "GZWhisper: полное описание текущего функционала"
+    core.title = "GZ Whisper Legacy: полное описание текущего функционала"
     core.subject = "Baseline для исследования конкурентов"
-    core.author = "GZWhisper project"
-    core.keywords = "GZWhisper, transcription, competitor research, local-first"
+    core.author = "GZ Whisper Legacy project"
+    core.keywords = "GZ Whisper Legacy, transcription, competitor research, local-first"
 
     doc.save(OUTPUT)
     print(OUTPUT)

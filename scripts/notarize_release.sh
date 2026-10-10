@@ -3,16 +3,16 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
-APP_PATH="$BUILD_DIR/${APP_BUNDLE_NAME:-GZWhisper}.app"
+APP_PATH="$BUILD_DIR/${APP_BUNDLE_NAME:-GZ Whisper Legacy}.app"
 bash "$ROOT_DIR/scripts/check_release_identity.sh" "$APP_PATH"
-export NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-GZWhisper}"
+export NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-GZB-notary}"
 NOTARY_TIMEOUT="${NOTARY_TIMEOUT:-20m}"
 AUTHORITY="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
 [[ "$AUTHORITY" == Developer\ ID\ Application:* ]] || { echo 'Developer ID Application signature required.' >&2; exit 1; }
 codesign --verify --deep --strict "$APP_PATH"
 xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" >/dev/null
-ARCHIVE="$BUILD_DIR/GZWhisper-notarization.zip"
-ditto -c -k --keepParent "$APP_PATH" "$ARCHIVE"
+ARCHIVE="$BUILD_DIR/GZWhisper-Legacy-notarization.zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ARCHIVE"
 xcrun notarytool submit "$ARCHIVE" --keychain-profile "$NOTARYTOOL_PROFILE" --wait --timeout "$NOTARY_TIMEOUT"
 xcrun stapler staple "$APP_PATH"
 xcrun stapler validate "$APP_PATH"

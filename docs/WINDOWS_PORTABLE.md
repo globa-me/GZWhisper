@@ -1,4 +1,6 @@
-# GZWhisper on Windows (Portable)
+# GZ Whisper Legacy on Windows (Portable)
+
+As of 2026-10-09, new features are frozen; support is limited to user-reported bug fixes. Existing data folder names are retained.
 
 This guide is for non-technical Windows users and maintainers who build the portable package.
 
@@ -10,10 +12,10 @@ This guide is for non-technical Windows users and maintainers who build the port
 
 ## 2) Download and launch (end users)
 
-1. Download `GZWhisper-windows-portable.zip` from Releases.
+1. Download and extract a portable build. New local builds use `GZWhisper-Legacy-windows-portable.zip`; the renamed Windows build has not been published.
 2. Right-click the ZIP and choose **Extract All...**.
 3. Open the extracted folder.
-4. Run `GZWhisper.exe`.
+4. Run `GZ Whisper Legacy.exe`.
 
 Important:
 - Do not run directly from inside the ZIP archive.
@@ -32,7 +34,7 @@ Important:
 For video files (`.mp4`, `.mkv`, `.mov`, etc.), `ffmpeg.exe` is required.
 
 Options:
-- Place `ffmpeg.exe` in the same folder as `GZWhisper.exe` (recommended).
+- Place `ffmpeg.exe` in the same folder as `GZ Whisper Legacy.exe` (recommended).
 - Or install ffmpeg and ensure it is available in `PATH`.
 
 If ffmpeg is missing, video transcription will fail with an explicit error, while audio-only files still work.
@@ -45,10 +47,10 @@ If ffmpeg is missing, video transcription will fail with an explicit error, whil
 
 ## 6) Updating portable version
 
-1. Close GZWhisper.
+1. Close GZ Whisper Legacy.
 2. Download and extract the new portable ZIP into a new folder.
 3. Optionally copy your `ffmpeg.exe` into the new folder.
-4. Run the new `GZWhisper.exe`.
+4. Run the new `GZ Whisper Legacy.exe`.
 
 Your models/transcripts/history remain in your user profile folders and are not tied to a specific app folder.
 
@@ -67,13 +69,13 @@ If Windows SmartScreen warns on first run:
 
 ### "ffmpeg is required"
 
-- Ensure `ffmpeg.exe` exists next to `GZWhisper.exe` or is in `PATH`.
+- Ensure `ffmpeg.exe` exists next to `GZ Whisper Legacy.exe` or is in `PATH`.
 - Reopen the app after adding ffmpeg.
 
 ### App fails to start after moving files
 
 - Re-extract ZIP and keep folder structure unchanged.
-- Do not move only `GZWhisper.exe` by itself.
+- Do not move only `GZ Whisper Legacy.exe` by itself.
 
 ## 8) Building portable package (maintainers, on Windows)
 
@@ -96,5 +98,5 @@ Optional (bundle ffmpeg into output folder):
 ```
 
 Build outputs:
-- `build/GZWhisper-windows-portable/`
-- `build/GZWhisper-windows-portable.zip`
+- `build/GZWhisper-Legacy-windows-portable/`
+- `build/GZWhisper-Legacy-windows-portable.zip`

@@ -337,6 +337,7 @@ def cmd_transcribe(args):
             local_files_only=True,
         )
         diagnostic("model_load_completed")
+        emit({"event": "stage", "stage": "model_load_completed"})
     except Exception as exc:
         diagnostic("model_load_failed", exception_type=type(exc).__name__, details=str(exc))
         emit(

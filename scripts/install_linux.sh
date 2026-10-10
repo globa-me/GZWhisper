@@ -9,7 +9,7 @@ fi
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="${PREFIX:-$HOME/.local}"
 APP_ID="gzwhisper-linux"
-APP_NAME="GZWhisper Linux"
+APP_NAME="GZ Whisper Legacy"
 LIB_DIR="$PREFIX/lib/$APP_ID"
 BIN_DIR="$PREFIX/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"

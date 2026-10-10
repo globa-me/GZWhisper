@@ -6,8 +6,8 @@ BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 APP_MODULE_NAME="GZWhisper"
 APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-GZWhisper}"
-APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
-APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-GZWhisper}"
+APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZ Whisper Legacy}"
+APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-GZ Whisper Legacy}"
 APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.gzakharov.gzwhisper}"
 APP_DIR="$BUILD_DIR/$APP_BUNDLE_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -16,11 +16,11 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-14.0}"
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-6E99F92E9A1BA1273CD084FAFE940A7280DB0A30}"
 ALLOW_APPLE_DEVELOPMENT_FALLBACK="${ALLOW_APPLE_DEVELOPMENT_FALLBACK:-0}"
 EXPECTED_TEAM_ID="${EXPECTED_TEAM_ID:-BN3D9H4C7J}"
-APP_VERSION="${APP_VERSION:-1.5.4}"
-APP_BUILD="${APP_BUILD:-270828}"
+APP_VERSION="${APP_VERSION:-1.5.5}"
+APP_BUILD="${APP_BUILD:-270829}"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 APP_BIN="$BUILD_DIR/${APP_MODULE_NAME}-${TARGET_ARCH}"
 PYTHON_FRAMEWORK_SOURCE="${PYTHON_FRAMEWORK_SOURCE:-$ROOT_DIR/Resources/Python.framework}"
@@ -230,9 +230,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key>
     <string>${MIN_MACOS_VERSION}</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>GZWhisper needs microphone access to record audio.</string>
+    <string>${APP_DISPLAY_NAME} needs microphone access to record audio.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>GZWhisper needs screen and system audio recording access to capture audio playing on this Mac.</string>
+    <string>${APP_DISPLAY_NAME} needs screen and system audio recording access to capture audio playing on this Mac.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

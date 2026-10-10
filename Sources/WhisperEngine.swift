@@ -131,6 +131,7 @@ enum WhisperEngineError: LocalizedError {
     case malformedResponse
     case modelMissing
     case invalidModelPath
+    case modelLoadTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -148,6 +149,8 @@ enum WhisperEngineError: LocalizedError {
             return L10n.t("engine.modelMissing")
         case .invalidModelPath:
             return L10n.t("engine.invalidModelPath")
+        case .modelLoadTimedOut:
+            return L10n.t("engine.modelLoadTimedOut")
         }
     }
 }
@@ -198,6 +201,49 @@ final class TranscriptionRunHandle: @unchecked Sendable {
     func clear() {
         lock.lock()
         process = nil
+        lock.unlock()
+    }
+}
+
+private final class ModelLoadWatchdog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+    private var timedOut = false
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
+    func start(
+        _ process: Process,
+        after seconds: TimeInterval = 300,
+        onSlowLoad: @escaping () -> Void
+    ) {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 45) { [self] in
+            lock.lock()
+            let stillLoading = !finished && process.isRunning
+            lock.unlock()
+            if stillLoading { onSlowLoad() }
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) { [self] in
+            lock.lock()
+            let shouldStop = !finished && process.isRunning
+            if shouldStop { timedOut = true }
+            lock.unlock()
+
+            guard shouldStop else { return }
+            process.terminate()
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
         lock.unlock()
     }
 }
@@ -407,7 +453,7 @@ final class WhisperEngine: @unchecked Sendable {
     func downloadModel(
         option: WhisperModelOption,
         to destinationDirectory: URL,
-        status: (String) -> Void,
+        status: @escaping (String) -> Void,
         onEvent: @escaping (ModelDownloadEvent) -> Void
     ) throws -> LocalModelReference {
         try prepareEnvironment(status: status)
@@ -576,7 +622,7 @@ final class WhisperEngine: @unchecked Sendable {
         inputAudioURL: URL,
         languageCode: String?,
         runHandle: TranscriptionRunHandle? = nil,
-        status: (String) -> Void,
+        status: @escaping (String) -> Void,
         onEvent: @escaping (TranscriptionEvent) -> Void
     ) throws -> TranscriptionResult {
         try prepareEnvironment(status: status)
@@ -585,7 +631,7 @@ final class WhisperEngine: @unchecked Sendable {
             throw WhisperEngineError.modelMissing
         }
 
-        status(L10n.t("engine.transcribing"))
+        status(L10n.t("engine.loadingModel"))
 
         var arguments = [
             workerScriptURL.path,
@@ -605,6 +651,7 @@ final class WhisperEngine: @unchecked Sendable {
 
         func executeWorker(safeIntelMode: Bool) throws -> (ProcessResult, [String: Any]?) {
             var finalPayload: [String: Any]?
+            let modelLoadWatchdog = ModelLoadWatchdog()
             let logURL = try createWorkerLog(
                 inputAudioURL: inputAudioURL,
                 modelID: reference.modelID,
@@ -625,12 +672,18 @@ final class WhisperEngine: @unchecked Sendable {
                     environmentOverrides: environmentOverrides,
                     onStart: { process in
                         runHandle?.attach(process)
+                        modelLoadWatchdog.start(process) {
+                            status(L10n.t("engine.modelLoadSlow"))
+                        }
                     }
                 ) { line in
                     guard let json = self.parseJSONLine(line) else { return }
 
                     if let event = json["event"] as? String {
                         switch event {
+                        case "stage" where json["stage"] as? String == "model_load_completed":
+                            modelLoadWatchdog.finish()
+                            status(L10n.t("engine.transcribing"))
                         case "progress":
                             let processed = (json["processed_seconds"] as? NSNumber)?.doubleValue ?? 0
                             let totalNumber = json["total_seconds"] as? NSNumber
@@ -646,11 +699,20 @@ final class WhisperEngine: @unchecked Sendable {
                     }
                 }
 
+                modelLoadWatchdog.finish()
                 appendWorkerCompletion(result, to: logURL)
+                if modelLoadWatchdog.didTimeOut {
+                    appendWorkerLogLine("model_load_timeout_seconds: 300", to: logURL)
+                    rotateWorkerLogs(keeping: 8)
+                    throw WhisperEngineError.modelLoadTimedOut
+                }
                 rotateWorkerLogs(keeping: 8)
                 return (result, finalPayload)
             } catch {
-                appendWorkerLogLine("launch_error: \(error.localizedDescription)", to: logURL)
+                modelLoadWatchdog.finish()
+                if !modelLoadWatchdog.didTimeOut {
+                    appendWorkerLogLine("launch_error: \(error.localizedDescription)", to: logURL)
+                }
                 rotateWorkerLogs(keeping: 8)
                 throw error
             }

@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-PACKAGE_DIR="$BUILD_DIR/GZWhisper-linux"
-ARCHIVE_PATH="$BUILD_DIR/GZWhisper-linux.tar.gz"
+PACKAGE_DIR="$BUILD_DIR/GZWhisper-Legacy-linux"
+ARCHIVE_PATH="$BUILD_DIR/GZWhisper-Legacy-linux.tar.gz"
 
 rm -rf "$PACKAGE_DIR"
 mkdir -p "$PACKAGE_DIR/linux" "$PACKAGE_DIR/scripts" "$PACKAGE_DIR/Resources"
@@ -21,7 +21,7 @@ fi
 chmod +x "$PACKAGE_DIR/linux/gzwhisper_linux.py" "$PACKAGE_DIR/scripts/install_linux.sh" "$PACKAGE_DIR/scripts/uninstall_linux.sh"
 
 cat > "$PACKAGE_DIR/README-Linux.txt" <<'TXT'
-GZWhisper Linux package
+GZ Whisper Legacy Linux package
 
 Install:
   ./scripts/install_linux.sh
@@ -34,6 +34,6 @@ Uninstall:
 TXT
 
 rm -f "$ARCHIVE_PATH"
-tar -C "$BUILD_DIR" -czf "$ARCHIVE_PATH" "GZWhisper-linux"
+tar -C "$BUILD_DIR" -czf "$ARCHIVE_PATH" "GZWhisper-Legacy-linux"
 
 echo "Created: $ARCHIVE_PATH"

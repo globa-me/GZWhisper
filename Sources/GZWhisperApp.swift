@@ -14,7 +14,7 @@ struct GZWhisperApp: App {
     }
 
     var body: some Scene {
-        Window("GZWhisper", id: "main") {
+        Window("GZ Whisper Legacy", id: "main") {
             ContentView()
                 .frame(minWidth: 640, idealWidth: 1100, minHeight: 500, idealHeight: 760)
         }
@@ -50,7 +50,9 @@ struct ContentView: View {
     @State private var selectedExportItemIDs: Set<UUID> = []
     @State private var editingHistoryItemID: UUID?
     @State private var historyRenameDraft = ""
+    @State private var transcriptTextView: NSTextView?
     @AppStorage("historySortByTranscriptionDate") private var historySortByTranscriptionDate = false
+    @AppStorage("dialogueMarker") private var dialogueMarker = "- "
     @State private var recordingHUDWindowController: RecordingHUDWindowController?
     @State private var isModelManagerPresented = false
     @FocusState private var focusedHistoryRenameFieldID: UUID?
@@ -260,8 +262,17 @@ struct ContentView: View {
             viewModel.savePendingTranscriptEdits()
             recordingHUDWindowController?.hide()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSTextView.didChangeSelectionNotification)) { notification in
+            guard let textView = notification.object as? NSTextView,
+                  textView.string == viewModel.transcriptText,
+                  viewModel.canEditSelectedTranscript else { return }
+            transcriptTextView = textView
+        }
         .onChange(of: historySearchText) {
             scheduleHistorySearch()
+        }
+        .onChange(of: viewModel.selectedHistoryItemID) {
+            transcriptTextView = nil
         }
         .onChange(of: viewModel.historySearchRevision) {
             if isHistorySearchActive { scheduleHistorySearch() }
@@ -288,7 +299,7 @@ struct ContentView: View {
     private var topCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Text("GZWhisper")
+                Text("GZ Whisper Legacy")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(accentColor)
 
@@ -1249,6 +1260,9 @@ struct ContentView: View {
             .accessibilityAction { activateHistoryRow(item) }
             .contextMenu {
                 if item.state == .completed {
+                    Button(L10n.t("button.retranscribe")) { viewModel.retranscribeHistoryItem(item.id) }
+                        .disabled(!viewModel.canRetranscribeHistoryItem(item))
+                        .help(L10n.t("help.retranscribe"))
                     Button(L10n.t("help.openTranscript")) { viewModel.revealTranscriptInFinder(item.id) }
                 }
                 if item.audioPath != nil {
@@ -1331,6 +1345,13 @@ struct ContentView: View {
         HStack(spacing: 8) {
             editorTitle
             Spacer(minLength: 8)
+            dialogueMarkerMenu(compact: false)
+            if let item = viewModel.selectedHistoryItem, item.state == .completed {
+                Button(L10n.t("button.retranscribe")) { viewModel.retranscribeHistoryItem(item.id) }
+                    .buttonStyle(.bordered)
+                    .disabled(!viewModel.canRetranscribeHistoryItem(item))
+                    .help(L10n.t("help.retranscribe"))
+            }
             copyAllButtonWithTitle
             exportMenuWithTitle
         }
@@ -1341,6 +1362,16 @@ struct ContentView: View {
         HStack(spacing: 8) {
             editorTitle
             Spacer(minLength: 0)
+            dialogueMarkerMenu(compact: true)
+
+            if let item = viewModel.selectedHistoryItem, item.state == .completed {
+                Button(action: { viewModel.retranscribeHistoryItem(item.id) }) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!viewModel.canRetranscribeHistoryItem(item))
+                .help(L10n.t("help.retranscribe"))
+            }
 
             Button(action: viewModel.copyAllText) {
                 Image(systemName: "doc.on.doc")
@@ -1373,6 +1404,58 @@ struct ContentView: View {
         .lineLimit(1)
     }
 
+    private func dialogueMarkerMenu(compact: Bool) -> some View {
+        Menu {
+            Button(L10n.t("button.insertDialogueMarker")) { insertDialogueMarker() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+            Button(L10n.t("button.configureDialogueMarker")) { configureDialogueMarker() }
+        } label: {
+            if compact {
+                Image(systemName: "text.insert")
+            } else {
+                Label(L10n.t("button.dialogueMarker"), systemImage: "text.insert")
+            }
+        }
+        .disabled(!viewModel.canEditSelectedTranscript)
+        .help(L10n.t("help.dialogueMarker"))
+    }
+
+    private func insertDialogueMarker() {
+        let currentEditor = transcriptTextView.flatMap {
+            $0.string == viewModel.transcriptText ? $0 : nil
+        }
+        guard viewModel.canEditSelectedTranscript,
+              let textView = currentEditor ?? (NSApp.keyWindow?.firstResponder as? NSTextView),
+              textView.string == viewModel.transcriptText else {
+            viewModel.statusMessage = L10n.t("status.placeCursorInTranscript")
+            return
+        }
+
+        let location = textView.selectedRange().location
+        let text = textView.string as NSString
+        guard location != NSNotFound, location <= text.length else { return }
+        let startsOnNewLine = location == 0 || text.character(at: location - 1) == 10
+        textView.insertText((startsOnNewLine ? "" : "\n") + dialogueMarker)
+        viewModel.updateTranscriptText(textView.string)
+    }
+
+    private func configureDialogueMarker() {
+        let alert = NSAlert()
+        alert.messageText = L10n.t("alert.dialogueMarkerTitle")
+        alert.informativeText = L10n.t("alert.dialogueMarkerInfo")
+        alert.addButton(withTitle: L10n.t("button.save"))
+        alert.addButton(withTitle: L10n.t("button.cancel"))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = dialogueMarker
+        field.placeholderString = "- "
+        alert.accessoryView = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let candidate = field.stringValue.replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
+        guard !candidate.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        dialogueMarker = candidate
+    }
+
     private var resultPlaceholder: some View {
         VStack(spacing: 12) {
             Image(systemName: viewModel.selectedHistoryItem?.state == .failed ? "exclamationmark.triangle" : "text.alignleft")
@@ -1384,6 +1467,17 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if viewModel.selectedHistoryItem?.state == .failed,
+               let errorMessage = viewModel.selectedHistoryItem?.errorMessage,
+               !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 560)
+            }
 
             if viewModel.selectedHistoryItem == nil {
                 Button(L10n.t("button.addMedia"), action: viewModel.chooseFiles)
@@ -1403,7 +1497,10 @@ struct ContentView: View {
     private var resultPlaceholderText: String {
         switch viewModel.selectedHistoryItem?.state {
         case .failed: return L10n.t("text.resultFailed")
-        case .queued, .ready, .processing: return L10n.t("text.resultPending")
+        case .processing:
+            if isShowingModelLoadStatus { return viewModel.statusMessage }
+            return L10n.t("text.resultPending")
+        case .queued, .ready: return L10n.t("text.resultPending")
         case .completed: return L10n.t("status.noTranscriptFile")
         case nil: return L10n.t("text.resultEmpty")
         }
@@ -1504,7 +1601,7 @@ struct ContentView: View {
         } else {
             HStack(spacing: 8) {
                 if viewModel.isTranscribing {
-                    Text(transcriptionFooterText)
+                    Text(isShowingModelLoadStatus ? viewModel.statusMessage : transcriptionFooterText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -1530,6 +1627,11 @@ struct ContentView: View {
             return "\(L10n.t("label.transcription")): \(fileName) · \(String(format: "%.0f%%", progress * 100))"
         }
         return "\(L10n.t("label.transcription")): \(fileName)"
+    }
+
+    private var isShowingModelLoadStatus: Bool {
+        viewModel.statusMessage == L10n.t("engine.loadingModel") ||
+            viewModel.statusMessage == L10n.t("engine.modelLoadSlow")
     }
 
     private var recordingFooterText: String {

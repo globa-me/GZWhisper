@@ -20,7 +20,7 @@ from typing import Any, Callable
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_NAME = "GZWhisper"
+APP_NAME = "GZ Whisper Legacy"
 IS_WINDOWS = os.name == "nt"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_ID = "gzwhisper-windows" if IS_WINDOWS else "gzwhisper-linux"

@@ -17,8 +17,8 @@ $BuildDir = Join-Path $RootDir $OutputRoot
 $DistDir = Join-Path $BuildDir "windows-dist"
 $WorkDir = Join-Path $BuildDir "pyinstaller-work"
 $SpecDir = Join-Path $BuildDir "pyinstaller-spec"
-$PortableDir = Join-Path $BuildDir "GZWhisper-windows-portable"
-$ZipPath = Join-Path $BuildDir "GZWhisper-windows-portable.zip"
+$PortableDir = Join-Path $BuildDir "GZWhisper-Legacy-windows-portable"
+$ZipPath = Join-Path $BuildDir "GZWhisper-Legacy-windows-portable.zip"
 
 function Run-Step {
     param(
@@ -48,7 +48,7 @@ Run-Step -Exe $PythonExe -Args @(
     "--noconfirm",
     "--clean",
     "--windowed",
-    "--name", "GZWhisper",
+    "--name", "GZ Whisper Legacy",
     "--distpath", $DistDir,
     "--workpath", $WorkDir,
     "--specpath", $SpecDir,
@@ -66,7 +66,7 @@ if (Test-Path $PortableDir) {
 }
 New-Item -ItemType Directory -Path $PortableDir | Out-Null
 
-$BuiltAppDir = Join-Path $DistDir "GZWhisper"
+$BuiltAppDir = Join-Path $DistDir "GZ Whisper Legacy"
 if (-not (Test-Path $BuiltAppDir)) {
     throw "PyInstaller output not found: $BuiltAppDir"
 }
@@ -79,14 +79,14 @@ if ($FfmpegExe -and (Test-Path $FfmpegExe)) {
 
 $ReadmePath = Join-Path $PortableDir "README-Windows.txt"
 @"
-GZWhisper Windows Portable
+GZ Whisper Legacy Windows Portable
 
 Run:
-  GZWhisper.exe
+  GZ Whisper Legacy.exe
 
 Notes:
   - This is a portable build and does not require installer setup.
-  - For video transcription, place ffmpeg.exe next to GZWhisper.exe (or provide it in PATH).
+  - For video transcription, place ffmpeg.exe next to GZ Whisper Legacy.exe (or provide it in PATH).
   - Models and history are stored in your user profile.
 "@ | Set-Content -Path $ReadmePath -Encoding UTF8
 

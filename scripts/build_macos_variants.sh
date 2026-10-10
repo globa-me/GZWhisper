@@ -4,10 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RELEASE_ROOT="${RELEASE_ROOT:-$ROOT_DIR/build/releases}"
 MIN_MACOS_VERSION="${MIN_MACOS_VERSION:-14.0}"
-APP_VERSION="${APP_VERSION:-1.5.4}"
-APP_BUILD="${APP_BUILD:-270828}"
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-auto}"
-NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-GZWhisper}"
+APP_VERSION="${APP_VERSION:-1.5.5}"
+APP_BUILD="${APP_BUILD:-270829}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-6E99F92E9A1BA1273CD084FAFE940A7280DB0A30}"
+NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-GZB-notary}"
 INTEL_RUNTIME_ROOT="$RELEASE_ROOT/runtime-x86_64"
 INTEL_PYTHON="$INTEL_RUNTIME_ROOT/python/bin/python3"
 INTEL_WHEELHOUSE="$INTEL_RUNTIME_ROOT/wheelhouse"
@@ -76,17 +76,17 @@ build_variant() {
 
   if [[ "$NOTARIZE" == "1" ]]; then
     BUILD_DIR="$variant_dir" \
-    APP_TITLE="GZWhisper $APP_VERSION ($label)" \
-    DMG_NAME="GZWhisper-Installer-$APP_VERSION-$label" \
-    VOL_NAME="GZWhisper $APP_VERSION $label" \
+    APP_TITLE="GZ Whisper Legacy $APP_VERSION ($label)" \
+    DMG_NAME="GZWhisper-Legacy-Installer-$APP_VERSION-$label" \
+    VOL_NAME="GZ Whisper Legacy $APP_VERSION $label" \
     NOTARYTOOL_PROFILE="$NOTARYTOOL_PROFILE" \
     SIGNING_IDENTITY="$SIGNING_IDENTITY" \
       "$ROOT_DIR/scripts/notarize_release.sh"
   else
     BUILD_DIR="$variant_dir" \
-    APP_TITLE="GZWhisper $APP_VERSION ($label)" \
-    DMG_NAME="GZWhisper-Installer-$APP_VERSION-$label" \
-    VOL_NAME="GZWhisper $APP_VERSION $label" \
+    APP_TITLE="GZ Whisper Legacy $APP_VERSION ($label)" \
+    DMG_NAME="GZWhisper-Legacy-Installer-$APP_VERSION-$label" \
+    VOL_NAME="GZ Whisper Legacy $APP_VERSION $label" \
       "$ROOT_DIR/scripts/build_dmg.sh"
   fi
 }

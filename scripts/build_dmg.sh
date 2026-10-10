@@ -3,14 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
-APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZWhisper}"
-APP_TITLE="${APP_TITLE:-GZWhisper 1.5.4}"
+APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-GZ Whisper Legacy}"
+APP_TITLE="${APP_TITLE:-GZ Whisper Legacy 1.5.5}"
 APP_BUNDLE="$APP_BUNDLE_NAME.app"
 APP_PATH="$BUILD_DIR/$APP_BUNDLE"
-DMG_NAME="${DMG_NAME:-GZWhisper-Installer-1.5.4}"
+DMG_NAME="${DMG_NAME:-GZWhisper-Legacy-Installer-1.5.5}"
 DMG_PATH="$BUILD_DIR/${DMG_NAME}.dmg"
 TEMP_DMG="$BUILD_DIR/${DMG_NAME}-temp.dmg"
-VOL_NAME="${VOL_NAME:-GZWhisper 1.5.4 Installer}"
+VOL_NAME="${VOL_NAME:-GZ Whisper Legacy 1.5.5 Installer}"
 STAGING_DIR="$BUILD_DIR/dmg-staging"
 BG_DIR="$STAGING_DIR/.background"
 BG_PATH="$BG_DIR/background.png"
@@ -184,8 +184,8 @@ if [[ -n "$NOTARYTOOL_PROFILE" ]]; then
     echo "Notarization requires Developer ID Application signing." >&2
     exit 1
   fi
-  DMG_SIGNING_IDENTITY="${SIGNING_IDENTITY:-$APP_AUTHORITY}"
-  [[ "$DMG_SIGNING_IDENTITY" != "auto" ]] || DMG_SIGNING_IDENTITY="$APP_AUTHORITY"
+  DMG_SIGNING_IDENTITY="${SIGNING_IDENTITY:-6E99F92E9A1BA1273CD084FAFE940A7280DB0A30}"
+  [[ "$DMG_SIGNING_IDENTITY" != "auto" ]] || DMG_SIGNING_IDENTITY="6E99F92E9A1BA1273CD084FAFE940A7280DB0A30"
   codesign --force --timestamp --sign "$DMG_SIGNING_IDENTITY" "$DMG_PATH"
   echo "Submitting DMG for notarization with profile: $NOTARYTOOL_PROFILE"
   xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait --timeout "$NOTARY_TIMEOUT"

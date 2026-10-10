@@ -441,10 +441,10 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.4"
+        appVersionLabel = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.5"
         appBuildLabel = AppViewModel.normalizedBundleBuildLabel(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        ) ?? "270828"
+        ) ?? "270829"
     }
 
     deinit {
@@ -1241,6 +1241,41 @@ final class AppViewModel: ObservableObject {
         return FileManager.default.fileExists(atPath: item.sourceFilePath)
     }
 
+    func canRetranscribeHistoryItem(_ item: TranscriptHistoryItem) -> Bool {
+        item.state == .completed
+            && item.transcriptPath != nil
+            && hasConnectedModel
+            && !isTranscribing
+            && FileManager.default.fileExists(atPath: item.sourceFilePath)
+    }
+
+    func retranscribeHistoryItem(_ id: UUID) {
+        guard !historyWritesBlocked,
+              let original = historyItems.first(where: { $0.id == id }),
+              canRetranscribeHistoryItem(original),
+              savePendingTranscriptEdits() else { return }
+
+        let replacement = TranscriptHistoryItem(
+            sourceFileName: original.sourceFileName,
+            customName: L10n.f("history.retranscriptionName", original.displayName),
+            sourceFilePath: original.sourceFilePath,
+            createdAt: Date(),
+            recordedAt: original.recordingDate,
+            mediaDurationSeconds: original.mediaDurationSeconds,
+            audioPath: original.audioPath,
+            recordingMode: original.recordingMode,
+            state: .queued,
+            queueOrder: nextQueueOrder()
+        )
+        historyItems.insert(replacement, at: 0)
+        sortHistoryByDateDesc()
+        guard persistHistoryToDisk(synchronously: true) else {
+            historyItems.removeAll { $0.id == replacement.id }
+            return
+        }
+        transcribeHistoryItemNow(replacement.id)
+    }
+
     func canRunHistoryItem(_ item: TranscriptHistoryItem) -> Bool {
         (item.state == .queued || canQueueHistoryItem(item))
             && FileManager.default.fileExists(atPath: item.sourceFilePath)
@@ -1930,7 +1965,12 @@ final class AppViewModel: ObservableObject {
                         return
                     }
                     self.finishTranscriptionFailure(itemID: itemID, error: error)
-                    self.advanceQueueAfterCurrentItem()
+                    if case WhisperEngineError.modelLoadTimedOut = error {
+                        self.pauseQueueRun()
+                        self.statusMessage = error.localizedDescription
+                    } else {
+                        self.advanceQueueAfterCurrentItem()
+                    }
                 }
             }
         }
@@ -2241,7 +2281,7 @@ final class AppViewModel: ObservableObject {
     nonisolated private static func makeTranscriptFileURL(for sourceURL: URL, createdAt: Date, in directoryURL: URL) -> URL {
         let baseName = sourceURL.deletingPathExtension().lastPathComponent
         let timestamp = Int(createdAt.timeIntervalSince1970)
-        let fileName = "\(sanitizeFileName(baseName))-\(timestamp).txt"
+        let fileName = "\(sanitizeFileName(baseName))-\(timestamp)-\(UUID().uuidString.prefix(8)).txt"
         return directoryURL.appendingPathComponent(fileName)
     }
 
@@ -2301,7 +2341,7 @@ final class AppViewModel: ObservableObject {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
-        return "GZWhisper-transcripts-\(formatter.string(from: Date())).zip"
+        return "GZWhisper-Legacy-transcripts-\(formatter.string(from: Date())).zip"
     }
 
     private func suggestedExportFileName(pathExtension: String) -> String {
@@ -2571,6 +2611,10 @@ final class AppViewModel: ObservableObject {
         let paths = Set([journal.item.transcriptPath, journal.item.audioPath].compactMap { $0 })
         do {
             for path in paths where FileManager.default.fileExists(atPath: path) {
+                // A retranscription can share its original media with another history item.
+                if historyItems.contains(where: {
+                    $0.sourceFilePath == path || $0.audioPath == path || $0.transcriptPath == path
+                }) { continue }
                 var resultingURL: NSURL?
                 try FileManager.default.trashItem(
                     at: URL(fileURLWithPath: path),
@@ -2931,6 +2975,7 @@ final class AppViewModel: ObservableObject {
 
         var lines: [String] = []
         lines.append("timestamp: \(formatter.string(from: Date()))")
+        lines.append("app_name: GZ Whisper Legacy")
         lines.append("app_version: \(version)")
         lines.append("app_build: \(build)")
         lines.append("ui_language: \(AppLanguage.current.rawValue)")
